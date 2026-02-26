@@ -468,7 +468,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, setDoc, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Constants
         const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -491,7 +491,7 @@
         let activeMonthId = '';
         let monthlyGoal = 50000;
         let currentUser = null;
-        let isInitialized = false;
+        let liveSyncStarted = false; // Flag to prevent multi-fires
         let isMasked = localStorage.getItem('earnings_privacy_masked') === 'true';
 
         // View State
@@ -706,9 +706,8 @@
             };
         };
 
-        // Cloud Operations
+        // Cloud Operations - Aggressively push to Firebase without waiting for user checks
         const saveToCloud = async () => {
-            if (!currentUser) return;
             try {
                 // Completely robust strip of undefined before Firebase save
                 const cleanData = JSON.parse(JSON.stringify({ 
@@ -767,7 +766,7 @@
                 activeMonthId = nextId;
                 updateUI();
                 renderMonthSelector();
-                await saveToCloud();
+                saveToCloud(); // Push directly
             }
         };
 
@@ -777,8 +776,8 @@
             return onSnapshot(docRef, (snap) => {
                 if (snap.exists()) {
                     const cloudData = snap.data();
-                    months = cloudData.months || months;
-                    monthlyGoal = cloudData.monthlyGoal || monthlyGoal;
+                    if (cloudData.months) months = cloudData.months;
+                    if (cloudData.monthlyGoal) monthlyGoal = cloudData.monthlyGoal;
                     
                     if (cloudData.workSession) {
                         workSession = cloudData.workSession;
@@ -788,19 +787,19 @@
                     }
                     if (cloudData.historicalSessions) historicalSessions = cloudData.historicalSessions;
                 } else {
-                    // Document doesn't exist yet, we are the very first to load it
-                    // Force the data up to establish the shared document!
+                    // Document doesn't exist yet! We are the very first to load it.
+                    // Seed the cloud database immediately.
                     saveToCloud();
                     saveWorkState();
                 }
 
                 syncMonths();
                 
-                if (!isInitialized) {
-                    isInitialized = true;
-                    const ist = getISTDate();
-                    const istId = `${MONTH_NAMES[ist.getMonth()]}-${ist.getFullYear() % 100}`;
-                    activeMonthId = months.find(m => m.id === istId) ? istId : months[months.length - 1].id;
+                // Switch to most relevant month if we just arrived
+                const ist = getISTDate();
+                const istId = `${MONTH_NAMES[ist.getMonth()]}-${ist.getFullYear() % 100}`;
+                if (!months.find(m => m.id === activeMonthId)) {
+                     activeMonthId = months.find(m => m.id === istId) ? istId : months[months.length - 1].id;
                 }
 
                 renderMonthSelector();
@@ -808,14 +807,13 @@
                 if (typeof updateWorkUI === 'function') updateWorkUI();
                 
             }, (error) => {
-                console.error("Snapshot error:", error);
+                console.error("Firebase Snapshot Error (Sync might be blocked by rules):", error);
             });
         };
 
         // --- WORK SECTION LOGIC ---
         
         const saveWorkState = async () => {
-            if (!currentUser) return;
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
             try {
                 // Deep strip undefined values to ensure Firebase never throws an error on save
@@ -871,7 +869,7 @@
             if (typeof updateWorkUI === 'function') updateWorkUI();
             if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
 
-            await saveWorkState();
+            saveWorkState(); // Push network async
         };
 
         window.toggleBreak = async () => {
@@ -905,10 +903,11 @@
                 workSession.startTime = now;
             }
             
+            // UI updates immediately for snappiness
             if (typeof updateWorkUI === 'function') updateWorkUI();
             if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
             
-            await saveWorkState();
+            saveWorkState();
         };
 
         window.resetWorkSession = async () => {
@@ -923,7 +922,7 @@
             if (typeof updateWorkUI === 'function') updateWorkUI();
             if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
             
-            await saveWorkState();
+            saveWorkState();
         };
 
         window.incrementWorkCount = async () => {
@@ -945,9 +944,10 @@
                 playSound('click');
             }
 
+            // Immediately update the visual interface
             if (typeof updateWorkUI === 'function') updateWorkUI();
             
-            // Push robustly
+            // Push completely safe to cloud without rewriting nested fields destructively
             saveWorkState();
         };
 
@@ -982,7 +982,7 @@
             
             window.toggleWorkSettings();
             if (typeof updateWorkUI === 'function') updateWorkUI();
-            await saveWorkState();
+            saveWorkState();
         };
 
         // UI Routing
@@ -1447,7 +1447,7 @@
             day.errors = 0;
             day.orders = 0; 
             updateUI();
-            await saveToCloud();
+            saveToCloud(); // Push directly
         };
 
         const renderMonthSelector = () => {
@@ -1662,10 +1662,10 @@
         };
 
         const startup = async () => {
-            // (0) IMMEDIATE LOCAL INIT to completely prevent any blank screens
+            // (0) IMMEDIATE LOCAL BOOT: Build the UI instantly without waiting.
             let loadedFromLocal = false;
             try {
-                const legacy = localStorage.getItem('earnings_v10_data') || localStorage.getItem('earnings_v9_data');
+                const legacy = localStorage.getItem('earnings_v10_data');
                 if (legacy) {
                     months = JSON.parse(legacy);
                     loadedFromLocal = true;
@@ -1682,7 +1682,7 @@
             updateUI();
             if (typeof updateWorkUI === 'function') updateWorkUI();
 
-            // (1) Handle Firebase Auth
+            // (1) Connect to Cloud Database
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
@@ -1690,14 +1690,16 @@
                     await signInAnonymously(auth);
                 }
             } catch (e) {
-                console.error("Auth init failed", e);
+                console.error("Auth init failed, but UI is still loaded securely.", e);
             }
 
-            // (2) Set Listener AFTER Login
+            // (2) Force Synchronization Hook 
+            let liveSyncStarted = false;
             onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    currentUser = user;
-                    setupLiveSync();
+                currentUser = user;
+                if (!liveSyncStarted) {
+                    liveSyncStarted = true;
+                    setupLiveSync(); // Automatically hooks into Firebase and handles new/empty DBs
                 }
             });
         };
@@ -1718,7 +1720,7 @@
             const day = m.days.find(d => d.date === date);
             day[field] = Number(value) || 0;
             updateUI();
-            await saveToCloud();
+            saveToCloud(); // Push directly
         };
 
         window.toggleModal = (show) => {
@@ -1735,7 +1737,7 @@
             if(input) monthlyGoal = Number(input.value) || 50000;
             updateUI();
             toggleModal(false);
-            await saveToCloud();
+            saveToCloud();
         };
 
         setInterval(() => {
