@@ -600,8 +600,11 @@
         };
 
         const updateHeaderIcons = () => {
-            document.getElementById('muteIcon').className = isMuted ? "fa-solid fa-volume-xmark text-red-400 text-xs hover:text-white transition-colors" : "fa-solid fa-volume-high text-slate-400 text-xs hover:text-white transition-colors";
-            document.getElementById('privacyIcon').className = isMasked ? "fa-solid fa-eye-slash text-blue-500 text-xs hover:text-white transition-colors" : "fa-solid fa-eye text-slate-400 text-xs hover:text-white transition-colors";
+            const muteIcon = document.getElementById('muteIcon');
+            if (muteIcon) muteIcon.className = isMuted ? "fa-solid fa-volume-xmark text-red-400 text-xs hover:text-white transition-colors" : "fa-solid fa-volume-high text-slate-400 text-xs hover:text-white transition-colors";
+            
+            const privacyIcon = document.getElementById('privacyIcon');
+            if (privacyIcon) privacyIcon.className = isMasked ? "fa-solid fa-eye-slash text-blue-500 text-xs hover:text-white transition-colors" : "fa-solid fa-eye text-slate-400 text-xs hover:text-white transition-colors";
         };
 
         // Logic Helpers
@@ -706,7 +709,7 @@
             };
         };
 
-        // UI Control
+        // Cloud Operations
         const saveToCloud = async () => {
             if (!currentUser || !isInitialized) return;
             try {
@@ -803,15 +806,13 @@
                     const istId = `${MONTH_NAMES[ist.getMonth()]}-${ist.getFullYear() % 100}`;
                     // Prefer current month, fallback to most recent month in history
                     activeMonthId = months.find(m => m.id === istId) ? istId : months[months.length - 1].id;
-                    const loader = document.getElementById('loadingOverlay');
-                    if (loader) {
-                        loader.style.opacity = '0';
-                        setTimeout(() => loader.style.visibility = 'hidden', 500);
-                    }
                 }
 
                 renderMonthSelector();
                 updateUI();
+            }, (error) => {
+                console.error("Snapshot error:", error);
+                // Swallow and keep UI alive using local render data
             });
         };
 
@@ -975,24 +976,31 @@
 
         window.toggleWorkSettings = () => {
             const settings = document.getElementById('workSettings');
-            const isActive = settings.style.opacity === '1';
-            settings.style.opacity = isActive ? '0' : '1';
-            settings.style.pointerEvents = isActive ? 'none' : 'auto';
-            if (!isActive) document.getElementById('sessionGoalInput').value = workSession.goal;
+            if(settings) {
+                const isActive = settings.style.opacity === '1';
+                settings.style.opacity = isActive ? '0' : '1';
+                settings.style.pointerEvents = isActive ? 'none' : 'auto';
+                if (!isActive) {
+                    const input = document.getElementById('sessionGoalInput');
+                    if(input) input.value = workSession.goal;
+                }
+            }
         };
 
         window.adjustWorkGoal = (amount) => {
             const input = document.getElementById('sessionGoalInput');
-            input.value = Math.max(1, Number(input.value) + amount);
+            if(input) input.value = Math.max(1, Number(input.value) + amount);
         };
 
         window.saveWorkSettings = async () => {
             const input = document.getElementById('sessionGoalInput');
-            const newGoal = Number(input.value) || 100;
-            workSession.goal = newGoal;
-            
-            if (workSession.count < newGoal) {
-                workSession.hasReachedGoal = false;
+            if(input) {
+                const newGoal = Number(input.value) || 100;
+                workSession.goal = newGoal;
+                
+                if (workSession.count < newGoal) {
+                    workSession.hasReachedGoal = false;
+                }
             }
             
             window.toggleWorkSettings();
@@ -1008,14 +1016,14 @@
             const navIcon = document.getElementById('navSessionIcon');
 
             if (pageId === 'sessions') {
-                homePage.classList.add('hidden');
-                sessionsPage.classList.remove('hidden');
-                navIcon.className = "fa-solid fa-house text-blue-400 text-xs hover:text-white transition-colors";
+                if(homePage) homePage.classList.add('hidden');
+                if(sessionsPage) sessionsPage.classList.remove('hidden');
+                if(navIcon) navIcon.className = "fa-solid fa-house text-blue-400 text-xs hover:text-white transition-colors";
                 if (typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
             } else {
-                homePage.classList.remove('hidden');
-                sessionsPage.classList.add('hidden');
-                navIcon.className = "fa-solid fa-list-ul text-slate-400 text-xs hover:text-white transition-colors";
+                if(homePage) homePage.classList.remove('hidden');
+                if(sessionsPage) sessionsPage.classList.add('hidden');
+                if(navIcon) navIcon.className = "fa-solid fa-list-ul text-slate-400 text-xs hover:text-white transition-colors";
             }
         };
 
@@ -1248,9 +1256,11 @@
 
         window.closeCongrats = () => {
             const modal = document.getElementById('congratsModal');
-            modal.style.opacity = '0';
-            modal.style.transform = 'scale(0.95)';
-            setTimeout(() => modal.classList.add('hidden'), 500);
+            if(modal) {
+                modal.style.opacity = '0';
+                modal.style.transform = 'scale(0.95)';
+                setTimeout(() => modal.classList.add('hidden'), 500);
+            }
         };
 
         const updateWorkUI = () => {
@@ -1334,7 +1344,8 @@
 
                 const modal = document.getElementById('congratsModal');
                 if(modal) {
-                    document.getElementById('congratsTarget').innerText = goal;
+                    const ct = document.getElementById('congratsTarget');
+                    if(ct) ct.innerText = goal;
                     modal.classList.remove('hidden');
                     setTimeout(() => {
                         modal.style.opacity = '1';
@@ -1372,7 +1383,8 @@
                     const breakSecs = Math.floor((now - workSession.lastPauseTime) / 1000);
                     const bm = Math.floor(breakSecs / 60).toString().padStart(2, '0');
                     const bs = (breakSecs % 60).toString().padStart(2, '0');
-                    document.getElementById('breakTimerDisplay').innerText = `${bm}:${bs}`;
+                    const display = document.getElementById('breakTimerDisplay');
+                    if(display) display.innerText = `${bm}:${bs}`;
                 } else {
                     breakContainer.classList.add('hidden');
                 }
@@ -1445,7 +1457,8 @@
                 if (count > 0 && totalSeconds > 5) {
                     // ART (Average Review Time)
                     const art = totalSeconds / count;
-                    document.getElementById('artDisplay').innerText = `${art.toFixed(1)} sec`;
+                    const artDisplay = document.getElementById('artDisplay');
+                    if(artDisplay) artDisplay.innerText = `${art.toFixed(1)} sec`;
 
                     // Speed (Orders per Hour)
                     const speed = (count / totalSeconds) * 3600;
@@ -1471,7 +1484,8 @@
                     }
 
                 } else {
-                    document.getElementById('artDisplay').innerText = '-- sec';
+                    const artDisplay = document.getElementById('artDisplay');
+                    if(artDisplay) artDisplay.innerText = '-- sec';
                     badge.classList.add('hidden');
                 }
             }
@@ -1479,17 +1493,6 @@
         }, 100);
 
         // --- END WORK SECTION LOGIC ---
-
-        // UI Rendering
-        const renderMonthSelector = () => {
-            const selector = document.getElementById('monthSelector');
-            if (!selector) return;
-            selector.innerHTML = months.map(m => `<option value="${m.id}" ${m.id === activeMonthId ? 'selected' : ''}>${m.id}</option>`).join('');
-            selector.onchange = (e) => {
-                activeMonthId = e.target.value;
-                updateUI();
-            };
-        };
 
         window.clearDayData = async (date) => {
             const m = months.find(m => m.id === activeMonthId);
@@ -1501,6 +1504,17 @@
             day.orders = 0; // Clear legacy data as well
             updateUI();
             await saveToCloud();
+        };
+
+        // UI Rendering
+        const renderMonthSelector = () => {
+            const selector = document.getElementById('monthSelector');
+            if (!selector) return;
+            selector.innerHTML = months.map(m => `<option value="${m.id}" ${m.id === activeMonthId ? 'selected' : ''}>${m.id}</option>`).join('');
+            selector.onchange = (e) => {
+                activeMonthId = e.target.value;
+                updateUI();
+            };
         };
 
         const updateUI = () => {
@@ -1578,17 +1592,29 @@
                 updateMultiplierBadge(p1.premiumOrders, isThisMonth);
             }
 
-            document.getElementById('headerGoalText').innerText = formatCurrency(monthlyGoal);
-            document.getElementById('totalNetDisplay').innerText = formatCurrency(totalNet);
-            document.getElementById('monthlyGoalDisplay').innerText = `/ ${formatCurrency(monthlyGoal)} NET`;
+            const headerGoalText = document.getElementById('headerGoalText');
+            if(headerGoalText) headerGoalText.innerText = formatCurrency(monthlyGoal);
+            
+            const totalNetDisplay = document.getElementById('totalNetDisplay');
+            if(totalNetDisplay) totalNetDisplay.innerText = formatCurrency(totalNet);
+            
+            const monthlyGoalDisplay = document.getElementById('monthlyGoalDisplay');
+            if(monthlyGoalDisplay) monthlyGoalDisplay.innerText = `/ ${formatCurrency(monthlyGoal)} NET`;
             
             const totalPercent = Math.min(100, (totalNet / monthlyGoal) * 100);
-            document.getElementById('mainProgressBar').style.width = `${totalPercent}%`;
-            document.getElementById('percentDone').innerText = `${Math.round(totalPercent)}% Done`;
             
-            document.getElementById('statusIcon').innerHTML = totalNet >= monthlyGoal 
-                ? '<i class="fa-solid fa-trophy text-yellow-500 text-xl"></i>' 
-                : '<i class="fa-solid fa-bolt-lightning text-blue-400 text-xl"></i>';
+            const mainProgressBar = document.getElementById('mainProgressBar');
+            if(mainProgressBar) mainProgressBar.style.width = `${totalPercent}%`;
+            
+            const percentDone = document.getElementById('percentDone');
+            if(percentDone) percentDone.innerText = `${Math.round(totalPercent)}% Done`;
+            
+            const statusIcon = document.getElementById('statusIcon');
+            if(statusIcon) {
+                statusIcon.innerHTML = totalNet >= monthlyGoal 
+                    ? '<i class="fa-solid fa-trophy text-yellow-500 text-xl"></i>' 
+                    : '<i class="fa-solid fa-bolt-lightning text-blue-400 text-xl"></i>';
+            }
 
             updatePeriodCard('P1', p1);
             updatePeriodCard('P2', p2);
@@ -1597,45 +1623,62 @@
         };
 
         const updatePeriodCard = (id, data) => {
-            document.getElementById(`title${id}`).innerText = data.title;
-            document.getElementById(`net${id}`).innerText = formatCurrency(data.net);
-            document.getElementById(`errors${id}`).innerText = data.errors;
-            document.getElementById(`orders${id}`).innerText = data.orders.toLocaleString();
-            document.getElementById(`req${id}`).innerText = (data.req === Infinity || isNaN(data.req)) ? 'N/A' : data.req.toLocaleString();
-            document.getElementById(`bar${id}`).style.width = `${data.percent}%`;
-            document.getElementById(`percent${id}`).innerText = `${Math.round(data.percent)}%`;
-            document.getElementById(`statusBadge${id}`).innerHTML = `<span class="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-white/5 border border-white/5 ${data.statusColor}">${data.status}</span>`;
+            const titleEl = document.getElementById(`title${id}`);
+            if(titleEl) titleEl.innerText = data.title;
+            
+            const netEl = document.getElementById(`net${id}`);
+            if(netEl) netEl.innerText = formatCurrency(data.net);
+            
+            const errEl = document.getElementById(`errors${id}`);
+            if(errEl) errEl.innerText = data.errors;
+            
+            const ordEl = document.getElementById(`orders${id}`);
+            if(ordEl) ordEl.innerText = data.orders.toLocaleString();
+            
+            const reqEl = document.getElementById(`req${id}`);
+            if(reqEl) reqEl.innerText = (data.req === Infinity || isNaN(data.req)) ? 'N/A' : data.req.toLocaleString();
+            
+            const barEl = document.getElementById(`bar${id}`);
+            if(barEl) barEl.style.width = `${data.percent}%`;
+            
+            const pEl = document.getElementById(`percent${id}`);
+            if(pEl) pEl.innerText = `${Math.round(data.percent)}%`;
+            
+            const badgeEl = document.getElementById(`statusBadge${id}`);
+            if(badgeEl) badgeEl.innerHTML = `<span class="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-white/5 border border-white/5 ${data.statusColor}">${data.status}</span>`;
 
             const footer = document.getElementById(`footer${id}`);
             const metrics = document.getElementById(`metrics${id}`);
             const isInactive = data.status.includes("DAYS") || data.status === "TOMORROW" || data.status === "UPCOMING";
 
-            if (isInactive) {
-                metrics.classList.add('opacity-20', 'grayscale');
-                footer.innerHTML = `<span class="text-[9px] font-black text-slate-600 uppercase tracking-widest">Upcoming Period</span>`;
-            } else if (data.status === "ENDED") {
-                metrics.classList.remove('opacity-20', 'grayscale');
-                footer.innerHTML = ``; 
-            } else {
-                metrics.classList.remove('opacity-20', 'grayscale');
-                footer.innerHTML = `
-                    <div class="flex flex-col">
-                        <span class="text-[9px] font-black text-slate-600 uppercase tracking-tighter">Daily Target Pace</span>
-                        <div class="flex items-center gap-1.5 mt-0.5">
-                            <span class="text-xs font-black text-blue-400">${data.pace || 0}</span>
-                            <span class="text-[8px] font-bold text-blue-400/60 uppercase">/day</span>
+            if(metrics && footer) {
+                if (isInactive) {
+                    metrics.classList.add('opacity-20', 'grayscale');
+                    footer.innerHTML = `<span class="text-[9px] font-black text-slate-600 uppercase tracking-widest">Upcoming Period</span>`;
+                } else if (data.status === "ENDED") {
+                    metrics.classList.remove('opacity-20', 'grayscale');
+                    footer.innerHTML = ``; 
+                } else {
+                    metrics.classList.remove('opacity-20', 'grayscale');
+                    footer.innerHTML = `
+                        <div class="flex flex-col">
+                            <span class="text-[9px] font-black text-slate-600 uppercase tracking-tighter">Daily Target Pace</span>
+                            <div class="flex items-center gap-1.5 mt-0.5">
+                                <span class="text-xs font-black text-blue-400">${data.pace || 0}</span>
+                                <span class="text-[8px] font-bold text-blue-400/60 uppercase">/day</span>
+                            </div>
                         </div>
-                    </div>
-                    ${data.isCurrentPhase ? `
-                    <div class="text-right">
-                        <span class="text-[9px] font-black text-slate-600 uppercase tracking-tighter">Deadline</span>
-                        <div class="text-[10px] font-black text-blue-500 uppercase mt-0.5">${data.daysLeft} Days Left</div>
-                    </div>` : ''}
-                `;
+                        ${data.isCurrentPhase ? `
+                        <div class="text-right">
+                            <span class="text-[9px] font-black text-slate-600 uppercase tracking-tighter">Deadline</span>
+                            <div class="text-[10px] font-black text-blue-500 uppercase mt-0.5">${data.daysLeft} Days Left</div>
+                        </div>` : ''}
+                    `;
+                }
             }
 
             const trophy = document.getElementById(`trophy${id}`);
-            data.achieved ? trophy.classList.remove('hidden') : trophy.classList.add('hidden');
+            if(trophy) data.achieved ? trophy.classList.remove('hidden') : trophy.classList.add('hidden');
         };
 
         const renderTable = (m, todayDay, isThisMonth) => {
@@ -1681,6 +1724,21 @@
 
         // Startup Sequence
         const startup = async () => {
+            // (0) IMMEDIATE LOCAL INIT to completely prevent any blank screens
+            const legacy = localStorage.getItem('earnings_v10_data') || localStorage.getItem('earnings_v9_data');
+            if (legacy) {
+                months = JSON.parse(legacy);
+            }
+            syncMonths(); 
+
+            const ist = getISTDate();
+            const istId = `${MONTH_NAMES[ist.getMonth()]}-${ist.getFullYear() % 100}`;
+            activeMonthId = months.find(m => m.id === istId) ? istId : months[months.length - 1].id;
+            
+            renderMonthSelector();
+            updateUI();
+            if (typeof updateWorkUI === 'function') updateWorkUI();
+
             // (1) Handle Firebase Auth
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -1697,8 +1755,6 @@
                 if (user) {
                     currentUser = user;
                     setupLiveSync();
-                } else {
-                    hideLoader();
                 }
             });
         };
@@ -1725,12 +1781,15 @@
         window.toggleModal = (show) => {
             const modal = document.getElementById('goalModal');
             if (modal) modal.classList.toggle('hidden', !show);
-            if(show) document.getElementById('goalInput').value = monthlyGoal;
+            if(show) {
+                const gi = document.getElementById('goalInput');
+                if(gi) gi.value = monthlyGoal;
+            }
         };
 
         window.saveGoal = async () => {
             const input = document.getElementById('goalInput');
-            monthlyGoal = Number(input.value) || 50000;
+            if(input) monthlyGoal = Number(input.value) || 50000;
             updateUI();
             toggleModal(false);
             await saveToCloud();
