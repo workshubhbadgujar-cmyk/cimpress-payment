@@ -159,6 +159,11 @@
             </div>
             
             <div class="flex items-center gap-2 sm:gap-3">
+                <!-- Sync Status Indicator -->
+                <div id="syncStatus" class="hidden sm:flex items-center gap-1.5 bg-white/5 border border-white/10 px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest text-slate-400 transition-all">
+                    <i class="fa-solid fa-cloud text-slate-500"></i> Local
+                </div>
+
                 <!-- Session Logs Toggle -->
                 <button onclick="switchPage(currentPage === 'home' ? 'sessions' : 'home')" class="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-all">
                     <i id="navSessionIcon" class="fa-solid fa-list-ul text-slate-400 text-xs hover:text-white transition-colors"></i>
@@ -487,8 +492,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         
-        // Ensure path uses standard string instead of strictly env vars which might be missing locally
-        const appId = 'cimpress-v10';
+        // Unified static document path base so ALL devices read from the exact same file
+        const appId = 'cimpress-shared-v1';
 
         // State
         let months = [];
@@ -502,7 +507,7 @@
         // Work Session State
         let historicalSessions = []; 
         let workSession = {
-            status: 'LOGGED_OUT', // LOGGED_OUT, WORKING, ON_BREAK
+            status: 'LOGGED_OUT',
             startTime: null,
             accumulatedTime: 0,
             count: 0,
@@ -597,6 +602,20 @@
             isMuted = !isMuted;
             localStorage.setItem('earnings_audio_muted', isMuted);
             updateHeaderIcons();
+        };
+
+        const updateSyncStatus = (state) => {
+            const el = document.getElementById('syncStatus');
+            if(!el) return;
+            if (state === 'live') {
+                el.innerHTML = '<i class="fa-solid fa-cloud text-green-400"></i> <span class="text-green-400">Live</span>';
+            } else if (state === 'syncing') {
+                el.innerHTML = '<i class="fa-solid fa-arrows-rotate text-blue-400 animate-spin"></i> <span class="text-blue-400">Syncing</span>';
+            } else if (state === 'error') {
+                el.innerHTML = '<i class="fa-solid fa-cloud-xmark text-red-500"></i> <span class="text-red-500">Blocked</span>';
+            } else {
+                el.innerHTML = '<i class="fa-solid fa-cloud text-slate-500"></i> Local';
+            }
         };
 
         const updateHeaderIcons = () => {
@@ -708,8 +727,11 @@
             };
         };
 
-        // Cloud Operations - Aggressively push to Firebase
+        // --- CLOUD ENGINE: Aggressive Push & Pull ---
+        const getSyncDoc = () => doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
+
         const saveToCloud = async () => {
+            updateSyncStatus('syncing');
             try {
                 const cleanData = JSON.parse(JSON.stringify({ 
                     months, 
@@ -718,13 +740,15 @@
                     historicalSessions,
                     lastSync: new Date().toISOString()
                 }));
-                // Caching locally to ensure seamless load on refresh
+                // Secure local fallback
                 localStorage.setItem('ep_cache', JSON.stringify(cleanData));
                 
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
-                await setDoc(docRef, cleanData, { merge: true });
+                // Force sync to Firebase
+                await setDoc(getSyncDoc(), cleanData, { merge: true });
+                updateSyncStatus('live');
             } catch (e) {
-                console.error("Firebase save fail:", e);
+                console.error("Firebase sync error:", e);
+                updateSyncStatus('error');
             }
         };
 
@@ -777,9 +801,8 @@
         };
 
         const setupLiveSync = () => {
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
-            
-            return onSnapshot(docRef, (snap) => {
+            updateSyncStatus('syncing');
+            return onSnapshot(getSyncDoc(), (snap) => {
                 if (snap.exists()) {
                     const cloudData = snap.data();
                     if (cloudData.months) months = cloudData.months;
@@ -793,10 +816,10 @@
                     }
                     if (cloudData.historicalSessions) historicalSessions = cloudData.historicalSessions;
                     
-                    // Backup cloud truth locally
                     localStorage.setItem('ep_cache', JSON.stringify(cloudData));
+                    updateSyncStatus('live');
                 } else {
-                    // Seed the cloud database initially
+                    // Seed the cloud database initially if it's perfectly empty
                     saveToCloud();
                 }
 
@@ -805,10 +828,11 @@
                 renderMonthSelector();
                 updateUI();
                 if (typeof updateWorkUI === 'function') updateWorkUI();
-                if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
+                if (window.currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
                 
             }, (error) => {
-                console.error("Firebase Snapshot Sync Blocked:", error);
+                console.error("Firebase Sync Blocked by Rules/Network:", error);
+                updateSyncStatus('error');
             });
         };
 
@@ -853,8 +877,8 @@
             }
             
             if (typeof updateWorkUI === 'function') updateWorkUI();
-            if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
-            saveToCloud();
+            if (window.currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
+            saveToCloud(); // Syncs instantly to other devices
         };
 
         window.toggleBreak = async () => {
@@ -889,7 +913,7 @@
             }
             
             if (typeof updateWorkUI === 'function') updateWorkUI();
-            if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
+            if (window.currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
             saveToCloud();
         };
 
@@ -903,7 +927,7 @@
             lastSpeedState = 'ready';
             
             if (typeof updateWorkUI === 'function') updateWorkUI();
-            if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
+            if (window.currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
             saveToCloud();
         };
 
@@ -1271,7 +1295,7 @@
                         confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
                     }, 10);
                 }
-                saveToCloud(); // Sync the reached goal state
+                saveToCloud(); 
             }
         };
 
@@ -1637,29 +1661,13 @@
             updateUI();
             if (typeof updateWorkUI === 'function') updateWorkUI();
 
-            // (1) Attempt Firebase Auth (Do not wait for it)
+            // (1) Always connect sync listener instantly
+            setupLiveSync();
+
+            // (2) Attempt Anonymous Auth purely as a formality if rules need it
             try {
-                await signInAnonymously(auth);
-            } catch (e) {
-                console.error("Auth init failed, but UI is still loaded securely.", e);
-            }
-
-            // (2) Force Synchronization Hook 
-            onAuthStateChanged(auth, (user) => {
-                currentUser = user;
-                if (!liveSyncStarted) {
-                    liveSyncStarted = true;
-                    setupLiveSync(); 
-                }
-            });
-
-            // Failsafe: if Auth triggers fail entirely (eg blocked network), still run sync explicitly
-            setTimeout(() => {
-                if (!liveSyncStarted) {
-                    liveSyncStarted = true;
-                    setupLiveSync();
-                }
-            }, 1000);
+                signInAnonymously(auth).catch(()=>console.warn("Anonymous auth disabled in console. Syncing via public rules."));
+            } catch (e) {}
         };
 
         startup();
