@@ -467,12 +467,14 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Constants
         const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+        
+        // Exact user-provided config
+        const firebaseConfig = {
             apiKey: "AIzaSyBOK3JIBa3H6JS-tNnQw62REmtt9PPan6U",
             authDomain: "cimpress-payment.firebaseapp.com",
             projectId: "cimpress-payment",
@@ -484,14 +486,14 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'cimpress-v10';
+        
+        // Ensure path uses standard string instead of strictly env vars which might be missing locally
+        const appId = 'cimpress-v10';
 
         // State
         let months = [];
         let activeMonthId = '';
         let monthlyGoal = 50000;
-        let currentUser = null;
-        let liveSyncStarted = false; // Flag to prevent multi-fires
         let isMasked = localStorage.getItem('earnings_privacy_masked') === 'true';
 
         // View State
@@ -706,19 +708,23 @@
             };
         };
 
-        // Cloud Operations - Aggressively push to Firebase without waiting for user checks
+        // Cloud Operations - Aggressively push to Firebase
         const saveToCloud = async () => {
             try {
-                // Completely robust strip of undefined before Firebase save
                 const cleanData = JSON.parse(JSON.stringify({ 
                     months, 
                     monthlyGoal, 
+                    workSession,
+                    historicalSessions,
                     lastSync: new Date().toISOString()
                 }));
+                // Caching locally to ensure seamless load on refresh
+                localStorage.setItem('ep_cache', JSON.stringify(cleanData));
+                
                 const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
                 await setDoc(docRef, cleanData, { merge: true });
             } catch (e) {
-                console.error("Broadcast failed:", e);
+                console.error("Firebase save fail:", e);
             }
         };
 
@@ -766,7 +772,7 @@
                 activeMonthId = nextId;
                 updateUI();
                 renderMonthSelector();
-                saveToCloud(); // Push directly
+                saveToCloud(); 
             }
         };
 
@@ -786,47 +792,28 @@
                         }
                     }
                     if (cloudData.historicalSessions) historicalSessions = cloudData.historicalSessions;
+                    
+                    // Backup cloud truth locally
+                    localStorage.setItem('ep_cache', JSON.stringify(cloudData));
                 } else {
-                    // Document doesn't exist yet! We are the very first to load it.
-                    // Seed the cloud database immediately.
+                    // Seed the cloud database initially
                     saveToCloud();
-                    saveWorkState();
                 }
 
                 syncMonths();
                 
-                // Switch to most relevant month if we just arrived
-                const ist = getISTDate();
-                const istId = `${MONTH_NAMES[ist.getMonth()]}-${ist.getFullYear() % 100}`;
-                if (!months.find(m => m.id === activeMonthId)) {
-                     activeMonthId = months.find(m => m.id === istId) ? istId : months[months.length - 1].id;
-                }
-
                 renderMonthSelector();
                 updateUI();
                 if (typeof updateWorkUI === 'function') updateWorkUI();
+                if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
                 
             }, (error) => {
-                console.error("Firebase Snapshot Error (Sync might be blocked by rules):", error);
+                console.error("Firebase Snapshot Sync Blocked:", error);
             });
         };
 
         // --- WORK SECTION LOGIC ---
         
-        const saveWorkState = async () => {
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
-            try {
-                // Deep strip undefined values to ensure Firebase never throws an error on save
-                const cleanData = JSON.parse(JSON.stringify({ 
-                    workSession: workSession,
-                    historicalSessions: historicalSessions
-                }));
-                await setDoc(docRef, cleanData, { merge: true });
-            } catch (e) {
-                console.error("Failed to sync work state", e);
-            }
-        };
-
         window.toggleLogin = async () => {
             const now = Date.now();
             initAudio();
@@ -865,11 +852,9 @@
                 lastSpeedState = 'ready';
             }
             
-            // Instantly update UI visually
             if (typeof updateWorkUI === 'function') updateWorkUI();
             if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
-
-            saveWorkState(); // Push network async
+            saveToCloud();
         };
 
         window.toggleBreak = async () => {
@@ -903,11 +888,9 @@
                 workSession.startTime = now;
             }
             
-            // UI updates immediately for snappiness
             if (typeof updateWorkUI === 'function') updateWorkUI();
             if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
-            
-            saveWorkState();
+            saveToCloud();
         };
 
         window.resetWorkSession = async () => {
@@ -921,8 +904,7 @@
             
             if (typeof updateWorkUI === 'function') updateWorkUI();
             if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
-            
-            saveWorkState();
+            saveToCloud();
         };
 
         window.incrementWorkCount = async () => {
@@ -944,11 +926,8 @@
                 playSound('click');
             }
 
-            // Immediately update the visual interface
             if (typeof updateWorkUI === 'function') updateWorkUI();
-            
-            // Push completely safe to cloud without rewriting nested fields destructively
-            saveWorkState();
+            saveToCloud();
         };
 
         window.toggleWorkSettings = () => {
@@ -982,7 +961,7 @@
             
             window.toggleWorkSettings();
             if (typeof updateWorkUI === 'function') updateWorkUI();
-            saveWorkState();
+            saveToCloud();
         };
 
         // UI Routing
@@ -1033,7 +1012,6 @@
             const container = document.getElementById('sessionTimelineContainer');
             if (!container) return;
             
-            // Combine active + history
             let allSessions = [...(historicalSessions || [])];
             if (workSession && workSession.status !== 'LOGGED_OUT' && workSession.timeline && workSession.timeline.length > 0) {
                 allSessions.push(JSON.parse(JSON.stringify(workSession)));
@@ -1044,10 +1022,8 @@
                 return;
             }
 
-            // Sort descending globally
             allSessions.sort((a, b) => b.timeline[0].start - a.timeline[0].start);
 
-            // Group by Year -> Month -> Day
             const groups = {};
             let globalWorkMs = 0;
             let globalOrders = 0;
@@ -1091,7 +1067,6 @@
             });
 
             let html = '';
-            
             const globalArt = globalOrders > 0 ? ((globalWorkMs / 1000) / globalOrders).toFixed(1) : '--';
             html += `
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-10">
@@ -1126,7 +1101,6 @@
                 
                 Object.keys(groups[year].months).sort((a,b) => monthOrder.indexOf(b) - monthOrder.indexOf(a)).forEach(month => {
                     const monthData = groups[year].months[month];
-                    
                     const monthArt = monthData.monthOrders > 0 ? ((monthData.monthWorkMs / 1000) / monthData.monthOrders).toFixed(1) : '--';
                     
                     html += `<div class="ml-2 mb-8">
@@ -1139,9 +1113,7 @@
                     
                     Object.keys(monthData.days).sort((a,b)=>b-a).forEach(day => {
                         const dayData = monthData.days[day];
-                        
                         const dayArt = dayData.dayOrders > 0 ? ((dayData.dayWorkMs / 1000) / dayData.dayOrders).toFixed(1) : '--';
-                        
                         let allDayEvents = [];
                         
                         dayData.sessions.forEach((sess) => {
@@ -1154,16 +1126,11 @@
                                 if (blockOrders === undefined && item.type === 'WORK') {
                                     blockOrders = workBlocks.length === 1 ? sessOrders : '?';
                                 }
-                                allDayEvents.push({
-                                    ...item,
-                                    sessStartTs,
-                                    blockOrders
-                                });
+                                allDayEvents.push({ ...item, sessStartTs, blockOrders });
                             });
                         });
 
                         allDayEvents.sort((a, b) => b.start - a.start);
-
                         let dayEventsHtml = '<div class="space-y-3">';
                         allDayEvents.forEach(item => {
                             const endTs = item.end || Date.now();
@@ -1173,7 +1140,6 @@
                             const color = item.type === 'WORK' ? 'text-blue-400 bg-blue-500/10 border-blue-500/20' : 'text-orange-400 bg-orange-500/10 border-orange-500/20';
                             const label = item.type === 'WORK' ? 'Working' : 'Break';
                             const timeStr = `${formatISTTimeStr(item.start, item.sessStartTs)} - ${item.end ? formatISTTimeStr(item.end, item.sessStartTs) : '<span class="text-green-400 animate-pulse">Ongoing</span>'}`;
-                            
                             const ordersBadge = item.type === 'WORK' && item.blockOrders !== '?' && item.blockOrders != null ? `<span class="ml-2 sm:ml-3 text-[9px] font-black text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20">${item.blockOrders} Orders</span>` : '';
                             
                             dayEventsHtml += `
@@ -1241,7 +1207,6 @@
                     loginBtn.className = 'w-28 sm:w-32 px-4 sm:px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2';
                 }
                 if(breakBtn) breakBtn.classList.add('hidden');
-                
                 if(card) card.classList.remove('glass-active');
                 if(mainCounterBtn) {
                     mainCounterBtn.classList.add('disabled');
@@ -1253,13 +1218,11 @@
                     loginBtn.innerHTML = '<i class="fa-solid fa-right-from-bracket"></i> Logout';
                     loginBtn.className = 'w-28 sm:w-32 px-4 sm:px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-red-600/20 flex items-center justify-center gap-2';
                 }
-                
                 if(breakBtn) {
                     breakBtn.classList.remove('hidden');
                     breakBtn.innerHTML = '<i class="fa-solid fa-mug-hot"></i> Break';
                     breakBtn.className = 'w-28 sm:w-32 px-4 sm:px-6 py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2';
                 }
-
                 if(card) card.classList.add('glass-active');
                 if(mainCounterBtn) {
                     mainCounterBtn.classList.remove('disabled');
@@ -1271,13 +1234,11 @@
                     loginBtn.innerHTML = '<i class="fa-solid fa-right-from-bracket"></i> Logout';
                     loginBtn.className = 'w-28 sm:w-32 px-4 sm:px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-red-600/20 flex items-center justify-center gap-2';
                 }
-                
                 if(breakBtn) {
                     breakBtn.classList.remove('hidden');
                     breakBtn.innerHTML = '<i class="fa-solid fa-play"></i> Resume';
                     breakBtn.className = 'w-28 sm:w-32 px-4 sm:px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2';
                 }
-
                 if(card) card.classList.add('glass-active');
                 if(mainCounterBtn) {
                     mainCounterBtn.classList.add('disabled');
@@ -1298,11 +1259,6 @@
                 workSession.hasReachedGoal = true;
                 playSound('target');
 
-                if (currentUser) {
-                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
-                    setDoc(docRef, { workSession: { hasReachedGoal: true } }, { merge: true }).catch(() => {});
-                }
-
                 const modal = document.getElementById('congratsModal');
                 if(modal) {
                     const ct = document.getElementById('congratsTarget');
@@ -1315,6 +1271,7 @@
                         confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
                     }, 10);
                 }
+                saveToCloud(); // Sync the reached goal state
             }
         };
 
@@ -1428,14 +1385,12 @@
                         }
                         lastSpeedState = currentSpeedState;
                     }
-
                 } else {
                     const artDisplay = document.getElementById('artDisplay');
                     if(artDisplay) artDisplay.innerText = '-- sec';
                     badge.classList.add('hidden');
                 }
             }
-
         }, 100);
 
         window.clearDayData = async (date) => {
@@ -1447,7 +1402,7 @@
             day.errors = 0;
             day.orders = 0; 
             updateUI();
-            saveToCloud(); // Push directly
+            saveToCloud();
         };
 
         const renderMonthSelector = () => {
@@ -1485,10 +1440,8 @@
                 });
 
                 const totalOrders = premiumOrders + regularOrders;
-                
                 const baseEarnings = calculateTieredEarnings(premiumOrders) + (regularOrders * 1);
                 const net = baseEarnings * getDeductionMultiplier(totalErrors) * 0.9;
-                
                 const req = getRequiredOrdersForNet(periodTarget, totalErrors, regularOrders);
                 const left = Math.max(0, req - totalOrders);
                 const percent = Math.min(100, (net / periodTarget) * 100);
@@ -1662,13 +1615,15 @@
         };
 
         const startup = async () => {
-            // (0) IMMEDIATE LOCAL BOOT: Build the UI instantly without waiting.
-            let loadedFromLocal = false;
+            // (0) IMMEDIATE LOCAL BOOT
             try {
-                const legacy = localStorage.getItem('earnings_v10_data');
+                const legacy = localStorage.getItem('ep_cache');
                 if (legacy) {
-                    months = JSON.parse(legacy);
-                    loadedFromLocal = true;
+                    const parsed = JSON.parse(legacy);
+                    if (parsed.months) months = parsed.months;
+                    if (parsed.monthlyGoal) monthlyGoal = parsed.monthlyGoal;
+                    if (parsed.workSession) workSession = parsed.workSession;
+                    if (parsed.historicalSessions) historicalSessions = parsed.historicalSessions;
                 }
             } catch(e) {}
             
@@ -1682,26 +1637,29 @@
             updateUI();
             if (typeof updateWorkUI === 'function') updateWorkUI();
 
-            // (1) Connect to Cloud Database
+            // (1) Attempt Firebase Auth (Do not wait for it)
             try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
+                await signInAnonymously(auth);
             } catch (e) {
                 console.error("Auth init failed, but UI is still loaded securely.", e);
             }
 
             // (2) Force Synchronization Hook 
-            let liveSyncStarted = false;
             onAuthStateChanged(auth, (user) => {
                 currentUser = user;
                 if (!liveSyncStarted) {
                     liveSyncStarted = true;
-                    setupLiveSync(); // Automatically hooks into Firebase and handles new/empty DBs
+                    setupLiveSync(); 
                 }
             });
+
+            // Failsafe: if Auth triggers fail entirely (eg blocked network), still run sync explicitly
+            setTimeout(() => {
+                if (!liveSyncStarted) {
+                    liveSyncStarted = true;
+                    setupLiveSync();
+                }
+            }, 1000);
         };
 
         startup();
@@ -1720,7 +1678,7 @@
             const day = m.days.find(d => d.date === date);
             day[field] = Number(value) || 0;
             updateUI();
-            saveToCloud(); // Push directly
+            saveToCloud();
         };
 
         window.toggleModal = (show) => {
