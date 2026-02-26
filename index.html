@@ -535,7 +535,7 @@
         const playSound = (type) => {
             if (isMuted) return;
             initAudio();
-            if (!audioCtx) return; // Fail safely if audio engine couldn't load
+            if (!audioCtx) return;
 
             try {
                 const now = audioCtx.currentTime;
@@ -588,9 +588,7 @@
                         playNote(150, 'sawtooth', 0.4, now + 0.8, 0.5);
                         break;
                 }
-            } catch (e) {
-                // Ignore silent audio failures
-            }
+            } catch (e) {}
         };
 
         window.toggleMute = () => {
@@ -610,7 +608,7 @@
         // Logic Helpers
         const getISTDate = () => {
             const now = new Date();
-            const istOffset = 330; // 5:30 minutes
+            const istOffset = 330; 
             const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
             return new Date(utcTime + (istOffset * 60000));
         };
@@ -686,7 +684,6 @@
             if (mult === 0) return Infinity; 
             const grossTarget = targetNet / (mult * 0.9);
             
-            // Subtract earnings already made from regular orders
             const remainingTargetForPremium = Math.max(0, grossTarget - (currentRegularOrders * 1));
             
             let reqPremium = 0;
@@ -711,15 +708,16 @@
 
         // Cloud Operations
         const saveToCloud = async () => {
-            if (!currentUser || !isInitialized) return;
+            if (!currentUser) return;
             try {
-                // Rule 1 shared path
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
-                await setDoc(docRef, { 
+                // Completely robust strip of undefined before Firebase save
+                const cleanData = JSON.parse(JSON.stringify({ 
                     months, 
                     monthlyGoal, 
                     lastSync: new Date().toISOString()
-                }, { merge: true });
+                }));
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
+                await setDoc(docRef, cleanData, { merge: true });
             } catch (e) {
                 console.error("Broadcast failed:", e);
             }
@@ -731,17 +729,14 @@
             const currentMonthIdx = ist.getMonth();
             const currentMonthId = `${MONTH_NAMES[currentMonthIdx]}-${currentYear % 100}`;
 
-            // (1) Initial Jan 2026 anchor
             if (!months.find(m => m.id === "Jan-26")) {
                 months.push(generateMonthTemplate(2026, 0));
             }
 
-            // (2) Ensure Current Month exists
             if (!months.find(m => m.id === currentMonthId)) {
                 months.push(generateMonthTemplate(currentYear, currentMonthIdx));
             }
 
-            // (3) Predictive next month logic (within 5 days of end)
             const activeM = months.find(m => m.id === currentMonthId);
             if (activeM) {
                 const lastDay = new Date(activeM.year, activeM.monthIdx + 1, 0).getDate();
@@ -754,7 +749,6 @@
                 }
             }
 
-            // Keep chronological order
             months.sort((a, b) => (a.year * 12 + a.monthIdx) - (b.year * 12 + b.monthIdx));
         };
 
@@ -770,7 +764,7 @@
             const nextId = `${MONTH_NAMES[nextMonthIdx]}-${nextYear % 100}`;
             if (!months.find(m => m.id === nextId)) {
                 months.push(generateMonthTemplate(nextYear, nextMonthIdx));
-                activeMonthId = nextId; // Switch focus
+                activeMonthId = nextId;
                 updateUI();
                 renderMonthSelector();
                 await saveToCloud();
@@ -793,26 +787,28 @@
                         }
                     }
                     if (cloudData.historicalSessions) historicalSessions = cloudData.historicalSessions;
-                    
-                    if (typeof updateWorkUI === 'function') updateWorkUI();
+                } else {
+                    // Document doesn't exist yet, we are the very first to load it
+                    // Force the data up to establish the shared document!
+                    saveToCloud();
+                    saveWorkState();
                 }
 
-                // Add Jan anchor, current month, and check 5-day predictive window
                 syncMonths();
-
+                
                 if (!isInitialized) {
                     isInitialized = true;
                     const ist = getISTDate();
                     const istId = `${MONTH_NAMES[ist.getMonth()]}-${ist.getFullYear() % 100}`;
-                    // Prefer current month, fallback to most recent month in history
                     activeMonthId = months.find(m => m.id === istId) ? istId : months[months.length - 1].id;
                 }
 
                 renderMonthSelector();
                 updateUI();
+                if (typeof updateWorkUI === 'function') updateWorkUI();
+                
             }, (error) => {
                 console.error("Snapshot error:", error);
-                // Swallow and keep UI alive using local render data
             });
         };
 
@@ -822,10 +818,12 @@
             if (!currentUser) return;
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
             try {
-                await setDoc(docRef, { 
+                // Deep strip undefined values to ensure Firebase never throws an error on save
+                const cleanData = JSON.parse(JSON.stringify({ 
                     workSession: workSession,
                     historicalSessions: historicalSessions
-                }, { merge: true }); // Switched to setDoc so it guarantees creation if missing
+                }));
+                await setDoc(docRef, cleanData, { merge: true });
             } catch (e) {
                 console.error("Failed to sync work state", e);
             }
@@ -836,15 +834,11 @@
             initAudio();
 
             if (workSession.status === 'LOGGED_OUT') {
-                // START SESSION (Login)
                 workSession.status = 'WORKING';
                 workSession.startTime = now;
                 workSession.timeline.push({ type: 'WORK', start: now, end: null, count: 0 });
                 lastSpeedState = 'ready';
             } else {
-                // END SESSION (Logout) -> Securely save to history
-                
-                // Cap off open timelines
                 if (workSession.status === 'WORKING') {
                     let lastWork = workSession.timeline.find(t => t.type === 'WORK' && !t.end);
                     if (lastWork) lastWork.end = now;
@@ -855,18 +849,16 @@
                     if (lastBreak) lastBreak.end = now;
                 }
 
-                // Save to permanent historical list
                 if (workSession.timeline && workSession.timeline.length > 0) {
                     historicalSessions.push(JSON.parse(JSON.stringify(workSession)));
                 }
 
-                // Complete reset for fresh login
                 workSession = {
                     status: 'LOGGED_OUT',
                     startTime: null,
                     accumulatedTime: 0,
                     count: 0,
-                    goal: workSession.goal, // Retain the goal they set
+                    goal: workSession.goal,
                     hasReachedGoal: false,
                     timeline: [],
                     lastPauseTime: null,
@@ -875,7 +867,7 @@
                 lastSpeedState = 'ready';
             }
             
-            // 🚨 Crucial Fix: Immediately update the visual interface before waiting for the network sync
+            // Instantly update UI visually
             if (typeof updateWorkUI === 'function') updateWorkUI();
             if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
 
@@ -887,7 +879,6 @@
             initAudio(); 
 
             if (workSession.status === 'WORKING') {
-                // GO ON BREAK
                 workSession.status = 'ON_BREAK';
                 workSession.lastPauseTime = now;
                 lastSpeedState = 'ready'; 
@@ -902,7 +893,6 @@
                 workSession.startTime = null;
 
             } else if (workSession.status === 'ON_BREAK') {
-                // RESUME WORK
                 workSession.status = 'WORKING';
                 lastSpeedState = 'ready'; 
 
@@ -915,7 +905,6 @@
                 workSession.startTime = now;
             }
             
-            // UI updates immediately for snappiness
             if (typeof updateWorkUI === 'function') updateWorkUI();
             if (currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
             
@@ -923,13 +912,11 @@
         };
 
         window.resetWorkSession = async () => {
-            // "Reset" zeros the current active session WITHOUT saving it to history
-            // Helpful if they accidentally hit Login
             workSession.startTime = workSession.status === 'WORKING' ? Date.now() : null;
             workSession.accumulatedTime = 0;
             workSession.count = 0;
             workSession.hasReachedGoal = false;
-            workSession.timeline = workSession.status !== 'LOGGED_OUT' ? [{ type: workSession.status === 'WORKING' ? 'WORK' : 'BREAK', start: Date.now(), end: null, count: workSession.status === 'WORKING' ? 0 : undefined }] : [];
+            workSession.timeline = workSession.status !== 'LOGGED_OUT' ? [{ type: workSession.status === 'WORKING' ? 'WORK' : 'BREAK', start: Date.now(), end: null, count: workSession.status === 'WORKING' ? 0 : null }] : [];
             workSession.lastPauseTime = workSession.status === 'ON_BREAK' ? Date.now() : null;
             lastSpeedState = 'ready';
             
@@ -944,7 +931,6 @@
             
             workSession.count = (workSession.count || 0) + 1;
             
-            // Also increment active timeline block specifically
             let activeWork = workSession.timeline.find(t => t.type === 'WORK' && !t.end);
             if (activeWork) {
                 activeWork.count = (activeWork.count || 0) + 1;
@@ -959,19 +945,10 @@
                 playSound('click');
             }
 
-            // Immediately update the visual interface
             if (typeof updateWorkUI === 'function') updateWorkUI();
-
-            // Quietly sync increment to cloud
-            if (currentUser) {
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
-                setDoc(docRef, { 
-                    workSession: {
-                        count: increment(1),
-                        timeline: workSession.timeline 
-                    }
-                }, { merge: true }).catch(e => console.error("Increment sync fail", e));
-            }
+            
+            // Push robustly
+            saveWorkState();
         };
 
         window.toggleWorkSettings = () => {
@@ -1059,7 +1036,7 @@
             // Combine active + history
             let allSessions = [...(historicalSessions || [])];
             if (workSession && workSession.status !== 'LOGGED_OUT' && workSession.timeline && workSession.timeline.length > 0) {
-                allSessions.push(JSON.parse(JSON.stringify(workSession))); // Add clone of current
+                allSessions.push(JSON.parse(JSON.stringify(workSession)));
             }
 
             if (allSessions.length === 0) {
@@ -1070,7 +1047,7 @@
             // Sort descending globally
             allSessions.sort((a, b) => b.timeline[0].start - a.timeline[0].start);
 
-            // Group by Year -> Month -> Day (based on IST date of the very first event in the session)
+            // Group by Year -> Month -> Day
             const groups = {};
             let globalWorkMs = 0;
             let globalOrders = 0;
@@ -1078,7 +1055,6 @@
             allSessions.forEach(sess => {
                 const firstEventTs = sess.timeline[0].start;
                 const d = new Date(firstEventTs);
-                // Adjust to IST to group safely
                 const istOffset = 330;
                 const utcTime = d.getTime() + (d.getTimezoneOffset() * 60000);
                 const istDate = new Date(utcTime + (istOffset * 60000));
@@ -1103,7 +1079,6 @@
                 });
                 const sessOrders = sess.count || 0;
 
-                // Aggregate Data up the chain
                 dayData.dayWorkMs += sessWorkMs;
                 dayData.dayBreakMs += sessBreakMs;
                 dayData.dayOrders += sessOrders;
@@ -1115,10 +1090,8 @@
                 globalOrders += sessOrders;
             });
 
-            // Generate HTML
             let html = '';
             
-            // --- 1. Global Lifetime Cards (Orders & ART) ---
             const globalArt = globalOrders > 0 ? ((globalWorkMs / 1000) / globalOrders).toFixed(1) : '--';
             html += `
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-10">
@@ -1154,7 +1127,6 @@
                 Object.keys(groups[year].months).sort((a,b) => monthOrder.indexOf(b) - monthOrder.indexOf(a)).forEach(month => {
                     const monthData = groups[year].months[month];
                     
-                    // --- 2. Month-Wise ART Header ---
                     const monthArt = monthData.monthOrders > 0 ? ((monthData.monthWorkMs / 1000) / monthData.monthOrders).toFixed(1) : '--';
                     
                     html += `<div class="ml-2 mb-8">
@@ -1168,12 +1140,10 @@
                     Object.keys(monthData.days).sort((a,b)=>b-a).forEach(day => {
                         const dayData = monthData.days[day];
                         
-                        // --- 3. Daily ART Calculation ---
                         const dayArt = dayData.dayOrders > 0 ? ((dayData.dayWorkMs / 1000) / dayData.dayOrders).toFixed(1) : '--';
                         
                         let allDayEvents = [];
                         
-                        // Break down all timeline items for this day and flatten them entirely
                         dayData.sessions.forEach((sess) => {
                             const sessStartTs = sess.timeline[0].start; 
                             const sessOrders = sess.count || 0;
@@ -1181,7 +1151,6 @@
                             
                             sess.timeline.forEach(item => {
                                 let blockOrders = item.count;
-                                // Legacy fallback logic for older saved blocks before we started tracking individual block counts
                                 if (blockOrders === undefined && item.type === 'WORK') {
                                     blockOrders = workBlocks.length === 1 ? sessOrders : '?';
                                 }
@@ -1193,10 +1162,8 @@
                             });
                         });
 
-                        // Sort flattened events chronologically descending
                         allDayEvents.sort((a, b) => b.start - a.start);
 
-                        // Produce flat HTML
                         let dayEventsHtml = '<div class="space-y-3">';
                         allDayEvents.forEach(item => {
                             const endTs = item.end || Date.now();
@@ -1207,8 +1174,7 @@
                             const label = item.type === 'WORK' ? 'Working' : 'Break';
                             const timeStr = `${formatISTTimeStr(item.start, item.sessStartTs)} - ${item.end ? formatISTTimeStr(item.end, item.sessStartTs) : '<span class="text-green-400 animate-pulse">Ongoing</span>'}`;
                             
-                            // Badge injected directly onto the Working period
-                            const ordersBadge = item.type === 'WORK' && item.blockOrders !== '?' ? `<span class="ml-2 sm:ml-3 text-[9px] font-black text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20">${item.blockOrders} Orders</span>` : '';
+                            const ordersBadge = item.type === 'WORK' && item.blockOrders !== '?' && item.blockOrders != null ? `<span class="ml-2 sm:ml-3 text-[9px] font-black text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20">${item.blockOrders} Orders</span>` : '';
                             
                             dayEventsHtml += `
                                 <div class="flex items-center gap-4 p-3 sm:p-4 rounded-xl border ${color} bg-opacity-50 hover:bg-white/[0.02] transition-colors">
@@ -1269,7 +1235,6 @@
             const card = document.getElementById('workCard');
             const mainCounterBtn = document.getElementById('mainCounterBtn');
             
-            // Controls State
             if (workSession.status === 'LOGGED_OUT') {
                 if(loginBtn) {
                     loginBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Login';
@@ -1320,19 +1285,15 @@
                 }
             }
 
-            // 2. Count
             const countDisplay = document.getElementById('workCountDisplay');
             if (countDisplay) countDisplay.innerText = workSession.count || 0;
 
-            // 3. Goal Ring Progress
             const goal = workSession.goal || 100;
             const progress = Math.min(100, (workSession.count / goal) * 100);
             const ring = document.getElementById('goalRing');
-            // 2 * PI * 48 ≈ 301.59
             const offset = 301.59 - (progress / 100) * 301.59;
             if(ring) ring.style.strokeDashoffset = offset;
 
-            // 4. Congratulation Check
             if (workSession.count >= goal && !workSession.hasReachedGoal && workSession.count > 0) {
                 workSession.hasReachedGoal = true;
                 playSound('target');
@@ -1357,7 +1318,6 @@
             }
         };
 
-        // Live Timer Loop (Runs every 100ms for smooth UI)
         setInterval(() => {
             let totalSeconds = workSession.accumulatedTime || 0;
             const now = Date.now();
@@ -1366,7 +1326,6 @@
                 totalSeconds += (now - workSession.startTime) / 1000;
             }
 
-            // Update Main Timer Text
             const timerDisplay = document.getElementById('timerDisplay');
             if(timerDisplay) {
                 const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
@@ -1375,7 +1334,6 @@
                 timerDisplay.innerText = `${h}:${m}:${s}`;
             }
 
-            // Handle Break Timer
             const breakContainer = document.getElementById('breakTimerContainer');
             if (breakContainer) {
                 if (workSession.status === 'ON_BREAK' && workSession.lastPauseTime && (workSession.accumulatedTime > 0 || workSession.timeline.length > 0)) {
@@ -1390,12 +1348,10 @@
                 }
             }
 
-            // Live Update Logs Page if Open
             if (window.currentPage === 'sessions') {
                 if (typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
             }
 
-            // Logout Alert Feature Logic
             const istDate = getISTDate();
             const currH = istDate.getHours();
             const currM = istDate.getMinutes();
@@ -1404,7 +1360,6 @@
             
             if (logoutContainer) {
                 if (currH >= 7 && currH < 9) {
-                    // Countdown Mode (7 AM to 8:59:59 AM)
                     const target9AM = new Date(istDate);
                     target9AM.setHours(9, 0, 0, 0);
                     const diffMs = target9AM - istDate;
@@ -1425,9 +1380,8 @@
                             <span class="text-[10px] font-black uppercase tracking-widest">${timeStr} to logout</span>
                         </div>
                     `;
-                    workSession.playedBuzzer = false; // Reset for the next time it hits 9 AM
+                    workSession.playedBuzzer = false; 
                 } else if (currH === 9 && currM < 30) {
-                    // Critical Alert Mode (Kept active from 9:00 AM to 9:29 AM)
                     logoutContainer.classList.remove('hidden');
                     logoutContainer.innerHTML = `
                         <div class="bg-red-500/20 border border-red-500/40 px-4 py-2 rounded-xl flex items-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.3)] animate-pulse">
@@ -1436,34 +1390,27 @@
                         </div>
                     `;
                     
-                    // Trigger buzzer immediately upon hitting the window if it hasn't played
                     if (!workSession.playedBuzzer) {
                         playSound('buzzer');
                         workSession.playedBuzzer = true;
                     }
                 } else {
-                    // Hidden rest of the day
                     logoutContainer.classList.add('hidden');
-                    if (currH > 9) workSession.playedBuzzer = false; // Safe reset for following day
+                    if (currH > 9) workSession.playedBuzzer = false; 
                 }
             }
 
-
-            // Calculate Stats (ART & Speed)
             const count = workSession.count || 0;
             const badge = document.getElementById('speedBadge');
             
             if (badge) {
                 if (count > 0 && totalSeconds > 5) {
-                    // ART (Average Review Time)
                     const art = totalSeconds / count;
                     const artDisplay = document.getElementById('artDisplay');
                     if(artDisplay) artDisplay.innerText = `${art.toFixed(1)} sec`;
 
-                    // Speed (Orders per Hour)
                     const speed = (count / totalSeconds) * 3600;
                     
-                    // Badge Logic
                     badge.classList.remove('hidden');
                     let currentSpeedState = speed >= 75 ? 'onTrack' : 'offTrack';
 
@@ -1475,7 +1422,6 @@
                         badge.innerText = `Off Track (${Math.round(speed)}/hr)`;
                     }
 
-                    // Audio Chime trigger
                     if (workSession.status === 'WORKING' && totalSeconds > 10) {
                         if (lastSpeedState !== 'ready' && lastSpeedState !== currentSpeedState) {
                             playSound(currentSpeedState);
@@ -1492,8 +1438,6 @@
 
         }, 100);
 
-        // --- END WORK SECTION LOGIC ---
-
         window.clearDayData = async (date) => {
             const m = months.find(m => m.id === activeMonthId);
             if (!m) return;
@@ -1501,12 +1445,11 @@
             day.premiumOrders = 0;
             day.regularOrders = 0;
             day.errors = 0;
-            day.orders = 0; // Clear legacy data as well
+            day.orders = 0; 
             updateUI();
             await saveToCloud();
         };
 
-        // UI Rendering
         const renderMonthSelector = () => {
             const selector = document.getElementById('monthSelector');
             if (!selector) return;
@@ -1532,7 +1475,6 @@
                 let totalErrors = 0;
 
                 days.forEach(d => {
-                    // Backwards compatibility with older data saves
                     const legacyOrders = Number(d.orders) || 0;
                     const pOrders = d.premiumOrders !== undefined ? Number(d.premiumOrders) : (d.isRegular ? 0 : legacyOrders);
                     const rOrders = d.regularOrders !== undefined ? Number(d.regularOrders) : (d.isRegular ? legacyOrders : 0);
@@ -1544,7 +1486,6 @@
 
                 const totalOrders = premiumOrders + regularOrders;
                 
-                // Regular is ₹1 flat, Premium is Tiered
                 const baseEarnings = calculateTieredEarnings(premiumOrders) + (regularOrders * 1);
                 const net = baseEarnings * getDeductionMultiplier(totalErrors) * 0.9;
                 
@@ -1585,7 +1526,6 @@
             const p2 = calcPeriod(m.days.filter(d => d.date > 15), false);
             const totalNet = p1.net + p2.net;
             
-            // Handle hiding/showing Multiplier Badge based on current month
             if (currentDay > 15) {
                 updateMultiplierBadge(p2.premiumOrders, isThisMonth);
             } else {
@@ -1688,7 +1628,6 @@
                 const divider = day.date === 16 ? `<tr class="bg-blue-500/5"><td colspan="4" class="px-6 py-2 text-[9px] font-black text-blue-400 uppercase tracking-[0.3em] text-center border-y border-white/5">Second Half</td></tr>` : '';
                 const isToday = isThisMonth && day.date === todayDay;
                 
-                // Read from new properties, fall back to older single input layout logic if they exist
                 const legacyOrders = Number(day.orders) || '';
                 const pVal = day.premiumOrders !== undefined ? (day.premiumOrders || '') : (day.isRegular ? '' : legacyOrders);
                 const rVal = day.regularOrders !== undefined ? (day.regularOrders || '') : (day.isRegular ? legacyOrders : '');
@@ -1722,13 +1661,17 @@
             }).join('');
         };
 
-        // Startup Sequence
         const startup = async () => {
             // (0) IMMEDIATE LOCAL INIT to completely prevent any blank screens
-            const legacy = localStorage.getItem('earnings_v10_data') || localStorage.getItem('earnings_v9_data');
-            if (legacy) {
-                months = JSON.parse(legacy);
-            }
+            let loadedFromLocal = false;
+            try {
+                const legacy = localStorage.getItem('earnings_v10_data') || localStorage.getItem('earnings_v9_data');
+                if (legacy) {
+                    months = JSON.parse(legacy);
+                    loadedFromLocal = true;
+                }
+            } catch(e) {}
+            
             syncMonths(); 
 
             const ist = getISTDate();
@@ -1750,7 +1693,7 @@
                 console.error("Auth init failed", e);
             }
 
-            // (2) Set Listener AFTER Login (Rule 3)
+            // (2) Set Listener AFTER Login
             onAuthStateChanged(auth, (user) => {
                 if (user) {
                     currentUser = user;
