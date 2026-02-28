@@ -434,18 +434,8 @@
                 </div>
                 <span id="istClock" class="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest shrink-0 ml-4 text-right">IST Loading...</span>
             </div>
-            <div class="overflow-x-auto activity-table-wrapper">
-                <table class="w-full text-left min-w-[550px]">
-                    <thead>
-                        <tr class="bg-white/[0.02] text-slate-600 text-[9px] uppercase font-black tracking-widest">
-                            <th class="px-6 py-4">Date</th>
-                            <th class="px-6 py-4">Orders</th>
-                            <th class="px-6 py-4 text-center">Errors</th>
-                            <th class="px-6 py-4 text-right">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="logTableBody" class="divide-y divide-white/5"></tbody>
-                </table>
+            <div class="p-4 sm:p-6" id="calendarContainer">
+                <!-- Javascript will inject calendar grid here -->
             </div>
         </div>
     </main>
@@ -1708,11 +1698,20 @@
         };
 
         const renderTable = (m, todayDay, isThisMonth) => {
-            const tbody = document.getElementById('logTableBody');
-            if (!tbody) return;
-            tbody.innerHTML = m.days.map((day) => {
-                const divider = day.date === 16 ? `<tr class="bg-blue-500/5"><td colspan="4" class="px-6 py-2 text-[9px] font-black text-blue-400 uppercase tracking-[0.3em] text-center border-y border-white/5">Second Half</td></tr>` : '';
+            const container = document.getElementById('calendarContainer');
+            if (!container) return;
+            
+            let firstHalfHtml = '<div class="mb-8"><div class="flex items-center gap-2 mb-4 px-2"><i class="fa-solid fa-moon text-blue-500 text-sm"></i><h4 class="text-[10px] sm:text-xs font-black text-slate-300 uppercase tracking-[0.2em]">First Half <span class="text-slate-500 font-bold ml-1">(1-15)</span></h4></div><div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">';
+            
+            let secondHalfHtml = '<div><div class="flex items-center gap-2 mb-4 px-2 mt-4"><i class="fa-regular fa-moon text-purple-500 text-sm"></i><h4 class="text-[10px] sm:text-xs font-black text-slate-300 uppercase tracking-[0.2em]">Second Half <span class="text-slate-500 font-bold ml-1">(16-End)</span></h4></div><div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">';
+            
+            m.days.forEach((day) => {
                 const isToday = isThisMonth && day.date === todayDay;
+                
+                // Determine day of week to highlight Sundays
+                const dateObj = new Date(m.year, m.monthIdx, day.date);
+                const isSunday = dateObj.getDay() === 0;
+                const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
                 
                 const legacyOrders = Number(day.orders) || '';
                 const pVal = day.premiumOrders !== undefined ? (day.premiumOrders || '') : (day.isRegular ? '' : legacyOrders);
@@ -1720,31 +1719,44 @@
                 
                 const hasData = Number(pVal) > 0 || Number(rVal) > 0 || Number(day.errors) > 0;
 
-                return `${divider}<tr class="${isToday ? 'row-today' : 'group hover:bg-white/[0.02]'} transition-all border-b border-white/5">
-                    <td class="px-4 sm:px-6 py-4 min-w-[120px]"><div class="flex items-center gap-2"><span class="font-semibold text-slate-400 text-xs">${day.date}</span><span class="text-slate-600 text-[10px] font-medium uppercase tracking-wider">${m.name}</span>${isToday ? '<span class="text-[8px] bg-blue-600 text-white px-1.5 rounded font-black tracking-tighter shrink-0">TODAY</span>' : ''}</div></td>
-                    <td class="px-2 sm:px-6 py-3">
-                        <div class="flex items-center gap-2 sm:gap-3">
+                const cellHtml = `
+                    <div class="relative p-3 sm:p-4 rounded-2xl border transition-all duration-300 ${isToday ? 'bg-blue-500/10 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.15)] ring-1 ring-blue-500' : (isSunday ? 'bg-red-500/5 border-red-500/20' : 'bg-white/[0.02] border-white/5 hover:border-white/10 hover:bg-white/[0.04]')}">
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="flex flex-col">
+                                <span class="text-sm sm:text-base font-black leading-none ${isSunday ? 'text-red-400' : (isToday ? 'text-blue-400' : 'text-slate-200')}">${day.date}</span>
+                                <span class="text-[9px] font-bold uppercase tracking-widest mt-1 ${isSunday ? 'text-red-500/70' : 'text-slate-500'}">${dayName}</span>
+                            </div>
+                            ${hasData ? `<button onclick="window.clearDayData(${day.date})" class="w-6 h-6 rounded-full bg-red-500/10 hover:bg-red-500 hover:shadow-[0_0_10px_rgba(239,68,68,0.5)] text-red-400 hover:text-white flex items-center justify-center transition-all group" title="Clear Day"><i class="fa-solid fa-trash-can text-[9px] group-hover:scale-110 transition-transform"></i></button>` : `<div class="w-6 h-6 flex items-center justify-center"><div class="w-1 h-1 rounded-full ${isSunday ? 'bg-red-500/20' : 'bg-white/10'}"></div></div>`}
+                        </div>
+                        
+                        <div class="space-y-2">
                             <div class="relative">
-                                <span class="absolute -top-2.5 left-2 text-[8px] font-black text-purple-400 uppercase tracking-widest bg-[#020617] px-1 z-10">Prem</span>
-                                <input type="number" onblur="window.updateDayData(${day.date}, 'premiumOrders', this.value)" value="${pVal}" class="bg-white/5 border border-white/10 rounded-lg pl-3 pr-2 py-2 w-16 sm:w-20 text-xs font-bold text-purple-100 focus:ring-1 focus:ring-purple-500 focus:border-purple-500 outline-none transition-all placeholder:text-slate-600" placeholder="0">
+                                <span class="absolute left-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-purple-400 uppercase tracking-wider">Prem</span>
+                                <input type="number" onblur="window.updateDayData(${day.date}, 'premiumOrders', this.value)" value="${pVal}" class="w-full bg-[#020617]/50 border border-white/5 rounded-lg py-2 pl-10 pr-2 text-xs font-black text-purple-100 text-right focus:border-purple-500 focus:bg-purple-500/5 outline-none transition-all placeholder:text-slate-700" placeholder="0">
                             </div>
                             <div class="relative">
-                                <span class="absolute -top-2.5 left-2 text-[8px] font-black text-slate-400 uppercase tracking-widest bg-[#020617] px-1 z-10">Reg</span>
-                                <input type="number" onblur="window.updateDayData(${day.date}, 'regularOrders', this.value)" value="${rVal}" class="bg-white/5 border border-white/10 rounded-lg pl-3 pr-2 py-2 w-16 sm:w-20 text-xs font-bold text-slate-300 focus:ring-1 focus:ring-slate-500 outline-none transition-all placeholder:text-slate-600" placeholder="0">
+                                <span class="absolute left-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400 uppercase tracking-wider">Reg</span>
+                                <input type="number" onblur="window.updateDayData(${day.date}, 'regularOrders', this.value)" value="${rVal}" class="w-full bg-[#020617]/50 border border-white/5 rounded-lg py-2 pl-10 pr-2 text-xs font-black text-slate-200 text-right focus:border-slate-500 focus:bg-white/5 outline-none transition-all placeholder:text-slate-700" placeholder="0">
+                            </div>
+                            <div class="relative pt-1 border-t border-white/5 mt-1">
+                                <span class="absolute left-2 top-[calc(50%+2px)] -translate-y-1/2 text-[8px] font-black text-red-400 uppercase tracking-wider">Err</span>
+                                <input type="number" onblur="window.updateDayData(${day.date}, 'errors', this.value)" value="${day.errors || ''}" class="w-full bg-[#020617]/50 border border-white/5 rounded-lg py-2 pl-10 pr-2 text-xs font-black text-right outline-none transition-all placeholder:text-slate-700 ${Number(day.errors) > 0 ? 'text-red-400 border-red-500/30 bg-red-500/5' : 'text-slate-500 focus:border-red-500 focus:bg-red-500/5'}" placeholder="0">
                             </div>
                         </div>
-                    </td>
-                    <td class="px-2 sm:px-6 py-3 text-center">
-                        <div class="relative inline-block mt-0.5">
-                            <span class="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[8px] font-black text-red-400 uppercase tracking-widest bg-[#020617] px-1 z-10">Err</span>
-                            <input type="number" onblur="window.updateDayData(${day.date}, 'errors', this.value)" value="${day.errors || ''}" class="bg-white/5 border border-white/10 rounded-lg px-2 sm:px-3 py-2 w-12 sm:w-16 text-center text-xs font-bold outline-none transition-all placeholder:text-slate-600 ${Number(day.errors) > 0 ? 'text-red-500 border-red-500/30 shadow-[0_0_10px_rgba(239,68,68,0.1)]' : 'text-slate-500'}" placeholder="0">
-                        </div>
-                    </td>
-                    <td class="px-4 sm:px-6 py-3 text-right">
-                        ${hasData ? `<button onclick="window.clearDayData(${day.date})" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white border border-red-500/20 transition-all flex items-center justify-center ml-auto" title="Clear Day"><i class="fa-solid fa-trash-can text-[10px]"></i></button>` : '<span class="text-slate-800 text-[9px] font-bold uppercase tracking-widest">—</span>'}
-                    </td>
-                </tr>`;
-            }).join('');
+                    </div>
+                `;
+
+                if (day.date <= 15) {
+                    firstHalfHtml += cellHtml;
+                } else {
+                    secondHalfHtml += cellHtml;
+                }
+            });
+
+            firstHalfHtml += '</div></div>';
+            secondHalfHtml += '</div></div>';
+
+            container.innerHTML = firstHalfHtml + secondHalfHtml;
         };
 
         const startup = async () => {
