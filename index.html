@@ -117,19 +117,6 @@
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 10px; }
 
-        #loadingOverlay {
-            position: fixed;
-            inset: 0;
-            background: #020617;
-            z-index: 100;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            gap: 1.5rem;
-            transition: opacity 0.5s ease, visibility 0.5s;
-        }
-
         @media (max-width: 640px) {
             .activity-table-wrapper {
                 margin: 0 -0.5rem;
@@ -149,7 +136,7 @@
             <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-blue-500"></div>
             <div class="mb-4 text-5xl">🎉</div>
             <h2 class="text-2xl font-black text-white mb-2">Goal Smashed!</h2>
-            <p class="text-slate-400 text-xs font-medium mb-6">You've reached your target of <span id="congratsTarget" class="text-white font-bold">0</span> orders.</p>
+            <p class="text-slate-400 text-xs font-medium mb-6">You've reached your target of <span id="congratsTarget" class="text-white font-bold">0</span> orders for the day.</p>
             <button onclick="closeCongrats()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-blue-500/20">Keep Going</button>
         </div>
     </div>
@@ -274,10 +261,10 @@
                     </svg>
                 </div>
 
-                <!-- Session Progress Bar -->
+                <!-- Day Progress Bar -->
                 <div class="w-full max-w-xs mx-auto mb-8 relative z-10">
                     <div class="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">
-                        <span>Session Goal</span>
+                        <span>Day's Goal</span>
                         <span id="sessionProgressText" class="text-blue-400">0%</span>
                     </div>
                     <div class="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
@@ -305,7 +292,7 @@
 
                 <!-- Goal Settings Overlay -->
                 <div id="workSettings" class="absolute inset-0 bg-slate-900/95 z-40 flex flex-col items-center justify-center opacity-0 pointer-events-none transition-all duration-300">
-                    <h3 class="text-sm font-black text-white uppercase tracking-widest mb-4">Session Goal</h3>
+                    <h3 class="text-sm font-black text-white uppercase tracking-widest mb-4">Day's Goal</h3>
                     <div class="flex items-center gap-2 mb-6">
                         <button onclick="adjustWorkGoal(-10)" class="w-10 h-10 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-white"><i class="fa-solid fa-minus"></i></button>
                         <input id="sessionGoalInput" type="number" value="100" class="w-24 bg-transparent text-center text-3xl font-black text-white border-b border-white/10 focus:border-blue-500 outline-none p-2">
@@ -659,6 +646,42 @@
             return new Date(utcTime + (istOffset * 60000));
         };
 
+        const isTodayIST = (timestamp) => {
+            const istOffset = 330; 
+            const utcTime = timestamp + (new Date(timestamp).getTimezoneOffset() * 60000);
+            const istDate = new Date(utcTime + (istOffset * 60000));
+            const nowIST = getISTDate();
+            return istDate.getFullYear() === nowIST.getFullYear() &&
+                   istDate.getMonth() === nowIST.getMonth() &&
+                   istDate.getDate() === nowIST.getDate();
+        };
+
+        const getTodayStats = () => {
+            let todayOrders = 0;
+            let todayWorkMs = 0;
+
+            const allSessions = [...(historicalSessions || [])];
+            if (workSession && workSession.status !== 'LOGGED_OUT' && workSession.timeline && workSession.timeline.length > 0) {
+                allSessions.push(JSON.parse(JSON.stringify(workSession)));
+            }
+
+            allSessions.forEach(sess => {
+                if (!sess.timeline || sess.timeline.length === 0) return;
+                const sessStartTs = sess.timeline[0].start;
+                if (isTodayIST(sessStartTs)) {
+                    todayOrders += (sess.count || 0);
+                    sess.timeline.forEach(item => {
+                        if (item.type === 'WORK') {
+                            const endTs = item.end || Date.now();
+                            todayWorkMs += (endTs - item.start);
+                        }
+                    });
+                }
+            });
+
+            return { todayOrders, todayWorkMs };
+        };
+
         const formatCurrency = (val) => {
             if (isMasked) return "₹XX";
             return `₹${Number(val).toLocaleString(undefined, {maximumFractionDigits: 0})}`;
@@ -756,7 +779,6 @@
         const getSyncDoc = () => doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'singleton');
 
         const saveToCloud = async () => {
-            if (!currentUser) return; // Prevent writing before Auth finishes to avoid immediate rejection
             updateSyncStatus('syncing');
             try {
                 const cleanData = JSON.parse(JSON.stringify({ 
@@ -904,7 +926,7 @@
             
             if (typeof updateWorkUI === 'function') updateWorkUI();
             if (window.currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
-            saveToCloud(); // Syncs instantly to other devices
+            saveToCloud(); 
         };
 
         window.toggleBreak = async () => {
@@ -944,13 +966,19 @@
         };
 
         window.resetWorkSession = async () => {
-            workSession.startTime = workSession.status === 'WORKING' ? Date.now() : null;
-            workSession.accumulatedTime = 0;
-            workSession.count = 0;
-            workSession.hasReachedGoal = false;
-            workSession.timeline = workSession.status !== 'LOGGED_OUT' ? [{ type: workSession.status === 'WORKING' ? 'WORK' : 'BREAK', start: Date.now(), end: null, count: workSession.status === 'WORKING' ? 0 : null }] : [];
-            workSession.lastPauseTime = workSession.status === 'ON_BREAK' ? Date.now() : null;
-            lastSpeedState = 'ready';
+            // Clears the ACTIVE running session ONLY
+            if (workSession.status === 'WORKING') {
+                workSession.startTime = Date.now();
+                workSession.accumulatedTime = 0;
+                workSession.count = 0;
+                workSession.timeline = [{ type: 'WORK', start: Date.now(), end: null, count: 0 }];
+            } else if (workSession.status === 'ON_BREAK') {
+                workSession.startTime = null;
+                workSession.accumulatedTime = 0;
+                workSession.count = 0;
+                workSession.timeline = [{ type: 'BREAK', start: Date.now(), end: null }];
+                workSession.lastPauseTime = Date.now();
+            }
             
             if (typeof updateWorkUI === 'function') updateWorkUI();
             if (window.currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
@@ -977,7 +1005,7 @@
             }
 
             if (typeof updateWorkUI === 'function') updateWorkUI();
-            saveToCloud();
+            saveToCloud(); // Save click live
         };
 
         window.toggleWorkSettings = () => {
@@ -1004,7 +1032,9 @@
                 const newGoal = Number(input.value) || 100;
                 workSession.goal = newGoal;
                 
-                if (workSession.count < newGoal) {
+                // If they set the goal higher, allow celebration again
+                const todayStats = getTodayStats();
+                if (todayStats.todayOrders < newGoal) {
                     workSession.hasReachedGoal = false;
                 }
             }
@@ -1031,31 +1061,6 @@
                 if(sessionsPage) sessionsPage.classList.add('hidden');
                 if(navIcon) navIcon.className = "fa-solid fa-list-ul text-slate-400 text-xs hover:text-white transition-colors";
             }
-        };
-
-        const formatISTTimeStr = (ts, sessionStartTs) => {
-            if (!ts) return "Ongoing";
-            
-            const date = new Date(ts);
-            const options = { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit', hour12: true };
-            let str = date.toLocaleTimeString('en-US', options);
-            
-            if (sessionStartTs) {
-                const startDate = new Date(sessionStartTs);
-                const istStartStr = startDate.toLocaleDateString('en-US', {timeZone: 'Asia/Kolkata'});
-                const istEndStr = date.toLocaleDateString('en-US', {timeZone: 'Asia/Kolkata'});
-                if (istStartStr !== istEndStr) {
-                    str += ' <span class="text-blue-500 font-black tracking-tighter">(Next Day)</span>';
-                }
-            }
-            return str;
-        };
-
-        const formatDurStr = (ms) => {
-            if (ms < 60000) return `${Math.floor(ms/1000)}s`;
-            const m = Math.floor(ms / 60000);
-            const h = Math.floor(m / 60);
-            return h > 0 ? `${h}h ${m%60}m` : `${m}m`;
         };
 
         window.updateSessionsPage = () => {
@@ -1257,7 +1262,6 @@
                     loginBtn.className = 'w-28 sm:w-32 px-4 sm:px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2';
                 }
                 if(breakBtn) breakBtn.classList.add('hidden');
-                
                 if(card) card.classList.remove('glass-active');
                 if(mainCounterBtn) {
                     mainCounterBtn.classList.add('disabled');
@@ -1297,24 +1301,26 @@
                 }
             }
 
+            // DAY'S GOAL: Compute today's total from all historical + active session
+            const todayStats = getTodayStats();
+
             const countDisplay = document.getElementById('workCountDisplay');
-            if (countDisplay) countDisplay.innerText = workSession.count || 0;
+            if (countDisplay) countDisplay.innerText = todayStats.todayOrders;
 
             const goal = workSession.goal || 100;
-            const progress = Math.min(100, (workSession.count / goal) * 100);
+            const progress = Math.min(100, (todayStats.todayOrders / goal) * 100);
             
-            // Circular Ring
             const ring = document.getElementById('goalRing');
             const offset = 301.59 - (progress / 100) * 301.59;
             if(ring) ring.style.strokeDashoffset = offset;
 
-            // Linear Progress Bar
             const sProgressBar = document.getElementById('sessionProgressBar');
             const sProgressText = document.getElementById('sessionProgressText');
             if (sProgressBar) sProgressBar.style.width = `${progress}%`;
             if (sProgressText) sProgressText.innerText = `${Math.floor(progress)}%`;
 
-            if (workSession.count >= goal && !workSession.hasReachedGoal && workSession.count > 0) {
+            // Goal Celebration Logic
+            if (todayStats.todayOrders >= goal && !workSession.hasReachedGoal && todayStats.todayOrders > 0) {
                 workSession.hasReachedGoal = true;
                 playSound('target');
 
@@ -1331,16 +1337,15 @@
                     }, 10);
                 }
                 saveToCloud(); 
+            } else if (todayStats.todayOrders === 0 && workSession.hasReachedGoal) {
+                // Reset hasReachedGoal for a brand new day
+                workSession.hasReachedGoal = false;
             }
         };
 
         setInterval(() => {
-            let totalSeconds = workSession.accumulatedTime || 0;
-            const now = Date.now();
-            
-            if (workSession.status === 'WORKING' && workSession.startTime) {
-                totalSeconds += (now - workSession.startTime) / 1000;
-            }
+            const todayStats = getTodayStats();
+            let totalSeconds = todayStats.todayWorkMs / 1000;
 
             const timerDisplay = document.getElementById('timerDisplay');
             if(timerDisplay) {
@@ -1352,7 +1357,8 @@
 
             const breakContainer = document.getElementById('breakTimerContainer');
             if (breakContainer) {
-                if (workSession.status === 'ON_BREAK' && workSession.lastPauseTime && (workSession.accumulatedTime > 0 || workSession.timeline.length > 0)) {
+                const now = Date.now();
+                if (workSession.status === 'ON_BREAK' && workSession.lastPauseTime) {
                     breakContainer.classList.remove('hidden');
                     const breakSecs = Math.floor((now - workSession.lastPauseTime) / 1000);
                     const bm = Math.floor(breakSecs / 60).toString().padStart(2, '0');
@@ -1371,7 +1377,6 @@
             const istDate = getISTDate();
             const currH = istDate.getHours();
             const currM = istDate.getMinutes();
-            const currS = istDate.getSeconds();
             const logoutContainer = document.getElementById('logoutTimerContainer');
             
             if (logoutContainer) {
@@ -1416,7 +1421,7 @@
                 }
             }
 
-            const count = workSession.count || 0;
+            const count = todayStats.todayOrders;
             const badge = document.getElementById('speedBadge');
             
             if (badge) {
@@ -1460,7 +1465,32 @@
             day.regularOrders = 0;
             day.errors = 0;
             day.orders = 0; 
+            
+            // Wipe today's history to properly reset the big day counter
+            const istNow = getISTDate();
+            if (istNow.getMonth() === m.monthIdx && istNow.getFullYear() === m.year && istNow.getDate() === date) {
+                if (workSession.status !== 'LOGGED_OUT') {
+                    workSession.startTime = workSession.status === 'WORKING' ? Date.now() : null;
+                    workSession.accumulatedTime = 0;
+                    workSession.count = 0;
+                    workSession.timeline = [{ type: workSession.status === 'WORKING' ? 'WORK' : 'BREAK', start: Date.now(), end: null, count: 0 }];
+                    workSession.lastPauseTime = workSession.status === 'ON_BREAK' ? Date.now() : null;
+                }
+            }
+
+            historicalSessions = historicalSessions.filter(sess => {
+                if (!sess.timeline || sess.timeline.length === 0) return true;
+                const sessStartTs = sess.timeline[0].start;
+                const istOffset = 330;
+                const utcTime = sessStartTs + (new Date(sessStartTs).getTimezoneOffset() * 60000);
+                const istDate = new Date(utcTime + (istOffset * 60000));
+                
+                return !(istDate.getFullYear() === m.year && istDate.getMonth() === m.monthIdx && istDate.getDate() === date);
+            });
+
             updateUI();
+            if (typeof updateWorkUI === 'function') updateWorkUI();
+            if (window.currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
             saveToCloud();
         };
 
@@ -1696,23 +1726,13 @@
             updateUI();
             if (typeof updateWorkUI === 'function') updateWorkUI();
 
-            // (1) Sign in Anonymously in the background
-            try {
-                await signInAnonymously(auth);
-            } catch (e) {
-                console.error("Auth init failed. Updating rules in Firebase Console will fix this.", e);
-                updateSyncStatus('error');
-            }
+            // (1) Establish direct Firebase listener aggressively (Bypasses Auth blocks completely)
+            setupLiveSync();
 
-            // (2) Wait for Auth to confirm, THEN open the live connection 
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    currentUser = user;
-                    setupLiveSync(); 
-                } else {
-                    updateSyncStatus('error');
-                }
-            });
+            // (2) Optional Auth (Only for user analytics if enabled in console, entirely optional)
+            try {
+                signInAnonymously(auth).catch(() => console.warn("Anon Auth skipped."));
+            } catch (e) {}
         };
 
         startup();
