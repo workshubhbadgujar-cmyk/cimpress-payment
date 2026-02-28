@@ -998,10 +998,12 @@
                 activeWork.count = (activeWork.count || 0) + 1;
             }
 
+            const todayStats = getTodayStats();
             const goal = workSession.goal || 100;
-            if (workSession.count === goal && !workSession.hasReachedGoal) {
+            
+            if (todayStats.todayOrders === goal && !workSession.hasReachedGoal) {
                 // Handled in updateWorkUI
-            } else if (workSession.count % 100 === 0 && workSession.count > 0) {
+            } else if (todayStats.todayOrders % 100 === 0 && todayStats.todayOrders > 0) {
                 playSound('hundred');
             } else {
                 playSound('click');
