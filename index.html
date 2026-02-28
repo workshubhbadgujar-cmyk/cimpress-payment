@@ -263,8 +263,11 @@
 
                 <!-- Day Progress Bar -->
                 <div class="w-full max-w-xs mx-auto mb-8 relative z-10">
-                    <div class="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">
-                        <span>Day's Goal</span>
+                    <div class="flex justify-between items-end text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                        <div class="flex flex-col items-start gap-0.5">
+                            <span>Day's Goal</span>
+                            <span id="ordersLeftText" class="text-[8px] font-bold text-slate-600 tracking-wider normal-case"></span>
+                        </div>
                         <span id="sessionProgressText" class="text-blue-400">0%</span>
                     </div>
                     <div class="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
@@ -1336,6 +1339,7 @@
 
             const goal = workSession.goal || 100;
             const progress = Math.min(100, (todayStats.todayOrders / goal) * 100);
+            const remaining = Math.max(0, goal - todayStats.todayOrders);
             
             const ring = document.getElementById('goalRing');
             const offset = 301.59 - (progress / 100) * 301.59;
@@ -1343,8 +1347,18 @@
 
             const sProgressBar = document.getElementById('sessionProgressBar');
             const sProgressText = document.getElementById('sessionProgressText');
+            const ordersLeftText = document.getElementById('ordersLeftText');
+
             if (sProgressBar) sProgressBar.style.width = `${progress}%`;
             if (sProgressText) sProgressText.innerText = `${Math.floor(progress)}%`;
+            
+            if (ordersLeftText) {
+                if (remaining > 0) {
+                    ordersLeftText.innerHTML = `(<span class="text-slate-400">${remaining}</span> left to go)`;
+                } else {
+                    ordersLeftText.innerHTML = `(<span class="text-green-400">Goal reached!</span>)`;
+                }
+            }
 
             // Goal Celebration Logic
             if (todayStats.todayOrders >= goal && !workSession.hasReachedGoal && todayStats.todayOrders > 0) {
