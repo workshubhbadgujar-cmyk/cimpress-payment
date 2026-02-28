@@ -274,6 +274,17 @@
                     </svg>
                 </div>
 
+                <!-- Session Progress Bar -->
+                <div class="w-full max-w-xs mx-auto mb-8 relative z-10">
+                    <div class="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                        <span>Session Goal</span>
+                        <span id="sessionProgressText" class="text-blue-400">0%</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <div id="sessionProgressBar" class="h-full bg-blue-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+
                 <!-- Footer Controls -->
                 <div class="flex items-center justify-center gap-3 sm:gap-4 relative z-10">
                     <button onclick="resetWorkSession()" class="px-4 sm:px-6 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs font-bold uppercase tracking-wider transition-all">
@@ -1291,9 +1302,17 @@
 
             const goal = workSession.goal || 100;
             const progress = Math.min(100, (workSession.count / goal) * 100);
+            
+            // Circular Ring
             const ring = document.getElementById('goalRing');
             const offset = 301.59 - (progress / 100) * 301.59;
             if(ring) ring.style.strokeDashoffset = offset;
+
+            // Linear Progress Bar
+            const sProgressBar = document.getElementById('sessionProgressBar');
+            const sProgressText = document.getElementById('sessionProgressText');
+            if (sProgressBar) sProgressBar.style.width = `${progress}%`;
+            if (sProgressText) sProgressText.innerText = `${Math.floor(progress)}%`;
 
             if (workSession.count >= goal && !workSession.hasReachedGoal && workSession.count > 0) {
                 workSession.hasReachedGoal = true;
