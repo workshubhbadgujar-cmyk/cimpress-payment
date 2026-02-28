@@ -1063,6 +1063,31 @@
             }
         };
 
+        const formatISTTimeStr = (ts, sessionStartTs) => {
+            if (!ts) return "Ongoing";
+            
+            const date = new Date(ts);
+            const options = { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit', hour12: true };
+            let str = date.toLocaleTimeString('en-US', options);
+            
+            if (sessionStartTs) {
+                const startDate = new Date(sessionStartTs);
+                const istStartStr = startDate.toLocaleDateString('en-US', {timeZone: 'Asia/Kolkata'});
+                const istEndStr = date.toLocaleDateString('en-US', {timeZone: 'Asia/Kolkata'});
+                if (istStartStr !== istEndStr) {
+                    str += ' <span class="text-blue-500 font-black tracking-tighter">(Next Day)</span>';
+                }
+            }
+            return str;
+        };
+
+        const formatDurStr = (ms) => {
+            if (ms < 60000) return `${Math.floor(ms/1000)}s`;
+            const m = Math.floor(ms / 60000);
+            const h = Math.floor(m / 60);
+            return h > 0 ? `${h}h ${m%60}m` : `${m}m`;
+        };
+
         window.updateSessionsPage = () => {
             const container = document.getElementById('sessionTimelineContainer');
             if (!container) return;
@@ -1084,6 +1109,8 @@
             let globalOrders = 0;
 
             allSessions.forEach(sess => {
+                if (!sess.timeline || sess.timeline.length === 0) return; // Safeguard against corrupted data
+
                 const firstEventTs = sess.timeline[0].start;
                 const d = new Date(firstEventTs);
                 const istOffset = 330;
@@ -1377,6 +1404,7 @@
             const istDate = getISTDate();
             const currH = istDate.getHours();
             const currM = istDate.getMinutes();
+            const currS = istDate.getSeconds();
             const logoutContainer = document.getElementById('logoutTimerContainer');
             
             if (logoutContainer) {
