@@ -1500,36 +1500,17 @@
             const m = months.find(m => m.id === activeMonthId);
             if (!m) return;
             const day = m.days.find(d => d.date === date);
+            
+            // Only clear the calendar input boxes for this specific day
             day.premiumOrders = 0;
             day.regularOrders = 0;
             day.errors = 0;
             day.orders = 0; 
             
-            // Wipe today's history to properly reset the big day counter
-            const istNow = getISTDate();
-            if (istNow.getMonth() === m.monthIdx && istNow.getFullYear() === m.year && istNow.getDate() === date) {
-                if (workSession.status !== 'LOGGED_OUT') {
-                    workSession.startTime = workSession.status === 'WORKING' ? Date.now() : null;
-                    workSession.accumulatedTime = 0;
-                    workSession.count = 0;
-                    workSession.timeline = [{ type: workSession.status === 'WORKING' ? 'WORK' : 'BREAK', start: Date.now(), end: null, count: 0 }];
-                    workSession.lastPauseTime = workSession.status === 'ON_BREAK' ? Date.now() : null;
-                }
-            }
-
-            historicalSessions = historicalSessions.filter(sess => {
-                if (!sess.timeline || sess.timeline.length === 0) return true;
-                const sessStartTs = sess.timeline[0].start;
-                const istOffset = 330;
-                const utcTime = sessStartTs + (new Date(sessStartTs).getTimezoneOffset() * 60000);
-                const istDate = new Date(utcTime + (istOffset * 60000));
-                
-                return !(istDate.getFullYear() === m.year && istDate.getMonth() === m.monthIdx && istDate.getDate() === date);
-            });
+            // We intentionally DO NOT clear the live work session or historical data here 
+            // so the big counter and active timer stay intact.
 
             updateUI();
-            if (typeof updateWorkUI === 'function') updateWorkUI();
-            if (window.currentPage === 'sessions' && typeof window.updateSessionsPage === 'function') window.updateSessionsPage();
             saveToCloud();
         };
 
