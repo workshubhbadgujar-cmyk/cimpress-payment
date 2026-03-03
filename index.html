@@ -164,6 +164,11 @@
                     <i class="fa-solid fa-cloud text-slate-500"></i> Local
                 </div>
 
+                <!-- Copy Email Toggle -->
+                <button onclick="copyEmail()" class="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-blue-500/20 transition-all group" title="Copy Email">
+                    <i class="fa-regular fa-envelope text-slate-400 text-xs group-hover:text-blue-400 transition-colors"></i>
+                </button>
+
                 <!-- Session Logs Toggle -->
                 <button onclick="switchPage(currentPage === 'home' ? 'sessions' : 'home')" class="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-all">
                     <i id="navSessionIcon" class="fa-solid fa-list-ul text-slate-400 text-xs hover:text-white transition-colors"></i>
@@ -1342,7 +1347,7 @@
             const ordersLeftText = document.getElementById('ordersLeftText');
 
             if (sProgressBar) sProgressBar.style.width = `${progress}%`;
-            if (sProgressText) sProgressText.innerText = `${Math.floor(progress)}%`;
+            if (sProgressText) sProgressText.innerText = `${progress.toFixed(2)}%`;
             
             if (ordersLeftText) {
                 if (remaining > 0) {
@@ -1623,7 +1628,7 @@
             if(mainProgressBar) mainProgressBar.style.width = `${totalPercent}%`;
             
             const percentDone = document.getElementById('percentDone');
-            if(percentDone) percentDone.innerText = `${Math.round(totalPercent)}% Done`;
+            if(percentDone) percentDone.innerText = `${totalPercent.toFixed(2)}% Done`;
             
             const statusIcon = document.getElementById('statusIcon');
             if(statusIcon) {
@@ -1658,7 +1663,7 @@
             if(barEl) barEl.style.width = `${data.percent}%`;
             
             const pEl = document.getElementById(`percent${id}`);
-            if(pEl) pEl.innerText = `${Math.round(data.percent)}%`;
+            if(pEl) pEl.innerText = `${data.percent.toFixed(2)}%`;
             
             const badgeEl = document.getElementById(`statusBadge${id}`);
             if(badgeEl) badgeEl.innerHTML = `<span class="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-white/5 border border-white/5 ${data.statusColor}">${data.status}</span>`;
@@ -1799,6 +1804,24 @@
             localStorage.setItem('earnings_privacy_masked', isMasked);
             updateHeaderIcons();
             updateUI();
+        };
+
+        window.copyEmail = () => {
+            const email = 'shubham.badgujar@cimpressgraphics.com';
+            const el = document.createElement('textarea');
+            el.value = email;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            
+            // Show temporary success checkmark
+            const btn = document.querySelector('button[title="Copy Email"]');
+            if (btn) {
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="fa-solid fa-check text-green-400 text-xs"></i>';
+                setTimeout(() => btn.innerHTML = originalHtml, 2000);
+            }
         };
 
         window.updateDayData = async (date, field, value) => {
