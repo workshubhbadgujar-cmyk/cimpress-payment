@@ -1472,7 +1472,7 @@
                     const speed = (count / totalSeconds) * 3600;
                     
                     badge.classList.remove('hidden');
-                    let currentSpeedState = speed >= 75 ? 'onTrack' : 'offTrack';
+                    let currentSpeedState = speed >= 200 ? 'onTrack' : 'offTrack';
 
                     if (currentSpeedState === 'onTrack') {
                         badge.className = 'px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-green-500/20 text-green-400 border border-green-500/30 shadow-md';
@@ -1531,11 +1531,10 @@
             const isThisMonth = ist.getMonth() === m.monthIdx && ist.getFullYear() === m.year;
             const currentDay = ist.getDate();
             const lastDay = m.days.length;
-            const periodTarget = monthlyGoal / 2;
 
-            const calcPeriod = (days, isP1) => {
-                let premiumOrders = 0;
-                let regularOrders = 0;
+            const calcPeriod = (days, isP1, targetNet) => {
+                let rawPremium = 0;
+                let rawRegular = 0;
                 let totalErrors = 0;
 
                 days.forEach(d => {
@@ -1543,18 +1542,27 @@
                     const pOrders = d.premiumOrders !== undefined ? Number(d.premiumOrders) : (d.isRegular ? 0 : legacyOrders);
                     const rOrders = d.regularOrders !== undefined ? Number(d.regularOrders) : (d.isRegular ? legacyOrders : 0);
 
-                    premiumOrders += pOrders;
-                    regularOrders += rOrders;
+                    rawPremium += pOrders;
+                    rawRegular += rOrders;
                     totalErrors += Number(d.errors) || 0;
                 });
+
+                // Shift first 1000 orders to premium
+                let premiumOrders = rawPremium;
+                let regularOrders = rawRegular;
+                if (premiumOrders < 1000 && regularOrders > 0) {
+                    const shift = Math.min(1000 - premiumOrders, regularOrders);
+                    premiumOrders += shift;
+                    regularOrders -= shift;
+                }
 
                 const totalOrders = premiumOrders + regularOrders;
                 const baseEarnings = calculateTieredEarnings(premiumOrders) + (regularOrders * 1);
                 const net = baseEarnings * getDeductionMultiplier(totalErrors) * 0.9;
-                const req = getRequiredOrdersForNet(periodTarget, totalErrors, regularOrders);
+                const req = getRequiredOrdersForNet(targetNet, totalErrors, regularOrders);
                 const left = Math.max(0, req - totalOrders);
-                const percent = Math.min(100, (net / periodTarget) * 100);
-                const achieved = net >= periodTarget;
+                const percent = targetNet > 0 ? Math.min(100, (net / targetNet) * 100) : (net > 0 ? 100 : 0);
+                const achieved = net >= targetNet;
                 
                 let daysLeft = 0;
                 let status = "ACTIVE";
@@ -1584,8 +1592,12 @@
                 return { orders: totalOrders, premiumOrders, regularOrders, errors: totalErrors, net, req, left, achieved, pace, status, statusColor, percent, daysLeft, title, isCurrentPhase };
             };
 
-            const p1 = calcPeriod(m.days.filter(d => d.date <= 15), true);
-            const p2 = calcPeriod(m.days.filter(d => d.date > 15), false);
+            const p1Target = monthlyGoal / 2;
+            const p1 = calcPeriod(m.days.filter(d => d.date <= 15), true, p1Target);
+            
+            const p2Target = Math.max(0, monthlyGoal - p1.net);
+            const p2 = calcPeriod(m.days.filter(d => d.date > 15), false, p2Target);
+            
             const totalNet = p1.net + p2.net;
             
             if (currentDay > 15) {
