@@ -252,7 +252,7 @@
                     <button id="mainCounterBtn" onclick="incrementWorkCount()" class="counter-btn group relative w-48 h-48 sm:w-56 sm:h-56 rounded-full glass flex flex-col items-center justify-center border-4 border-white/5 hover:border-blue-500/30 transition-all duration-300 disabled">
                         <div class="absolute inset-0 rounded-full bg-blue-500/0 group-hover:bg-blue-500/5 transition-all"></div>
                         <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Total Orders</span>
-                        <span id="workCountDisplay" class="text-7xl sm:text-8xl font-black text-white tracking-tighter leading-none select-none">0</span>
+                        <span id="workCountDisplay" class="text-7xl sm:text-8xl font-black text-white tracking-tighter leading-none select-none transition-all duration-300">0</span>
                         <div class="mt-4 flex flex-col items-center">
                             <span class="text-[9px] font-bold text-slate-600 uppercase tracking-widest">ART</span>
                             <span id="artDisplay" class="text-xs font-bold text-blue-400 mt-0.5">-- sec</span>
@@ -1332,7 +1332,20 @@
             const todayStats = getTodayStats();
 
             const countDisplay = document.getElementById('workCountDisplay');
-            if (countDisplay) countDisplay.innerText = todayStats.todayOrders;
+            if (countDisplay) {
+                const countStr = String(todayStats.todayOrders);
+                countDisplay.innerText = countStr;
+                
+                // Dynamic font scaling to prevent overflow in the circle
+                countDisplay.classList.remove('text-7xl', 'sm:text-8xl', 'text-6xl', 'sm:text-7xl', 'text-5xl', 'sm:text-6xl');
+                if (countStr.length <= 3) {
+                    countDisplay.classList.add('text-7xl', 'sm:text-8xl');
+                } else if (countStr.length === 4) {
+                    countDisplay.classList.add('text-6xl', 'sm:text-7xl');
+                } else {
+                    countDisplay.classList.add('text-5xl', 'sm:text-6xl');
+                }
+            }
 
             const goal = workSession.goal || 100;
             const progress = Math.min(100, (todayStats.todayOrders / goal) * 100);
