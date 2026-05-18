@@ -1485,7 +1485,7 @@
                     const speed = (count / totalSeconds) * 3600;
                     
                     badge.classList.remove('hidden');
-                    let currentSpeedState = speed >= 200 ? 'onTrack' : 'offTrack';
+                    let currentSpeedState = speed >= 150 ? 'onTrack' : 'offTrack';
 
                     if (currentSpeedState === 'onTrack') {
                         badge.className = 'px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-green-500/20 text-green-400 border border-green-500/30 shadow-md';
