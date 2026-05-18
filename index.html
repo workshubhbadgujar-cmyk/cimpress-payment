@@ -1734,7 +1734,7 @@
                     <div class="relative p-3 sm:p-4 rounded-2xl border transition-all duration-300 ${isToday ? 'bg-blue-500/10 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.15)] ring-1 ring-blue-500' : (isSunday ? 'bg-red-500/5 border-red-500/20' : 'bg-white/[0.02] border-white/5 hover:border-white/10 hover:bg-white/[0.04]')}">
                         <div class="flex justify-between items-start mb-4">
                             <div class="flex flex-col">
-                                <span class="text-sm sm:text-base font-black leading-none ${isSunday ? 'text-red-400' : (isToday ? 'text-blue-400' : 'text-slate-200')}">${day.date}</span>
+                                <span class="text-sm sm:text-base font-black leading-none ${isSunday ? 'text-red-400' : (isToday ? 'text-blue-400' : 'text-slate-150')}">${day.date}</span>
                                 <span class="text-[9px] font-bold uppercase tracking-widest mt-1 ${isSunday ? 'text-red-500/70' : 'text-slate-500'}">${dayName}</span>
                             </div>
                             ${hasData ? `<button onclick="window.clearDayData(${day.date})" class="w-6 h-6 rounded-full bg-red-500/10 hover:bg-red-500 hover:shadow-[0_0_10px_rgba(239,68,68,0.5)] text-red-400 hover:text-white flex items-center justify-center transition-all group" title="Clear Day"><i class="fa-solid fa-trash-can text-[9px] group-hover:scale-110 transition-transform"></i></button>` : `<div class="w-6 h-6 flex items-center justify-center"><div class="w-1 h-1 rounded-full ${isSunday ? 'bg-red-500/20' : 'bg-white/10'}"></div></div>`}
