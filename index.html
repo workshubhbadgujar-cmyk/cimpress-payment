@@ -6,6 +6,7 @@
     <title>EarningPro Calculator</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         
@@ -444,6 +445,19 @@
                 <!-- Javascript will inject calendar grid here -->
             </div>
         </div>
+
+        <!-- Trajectory Chart -->
+        <div class="glass rounded-[2rem] overflow-hidden border-none bg-white/[0.01] mt-8 mb-6">
+            <div class="p-5 sm:p-6 border-b border-white/5 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <i class="fa-solid fa-chart-line text-purple-500"></i>
+                    <h3 class="font-bold text-xs uppercase tracking-widest">Monthly Order Trajectory</h3>
+                </div>
+            </div>
+            <div class="p-4 sm:p-6 h-[300px] sm:h-[400px] w-full relative">
+                <canvas id="trajectoryChart"></canvas>
+            </div>
+        </div>
     </main>
 
     <!-- SESSIONS PAGE VIEW -->
@@ -508,12 +522,13 @@
         // State
         let months = [];
         let activeMonthId = '';
-        let monthlyGoal = 50000;
+        let monthlyGoal = 50000; // Global fallback
         let currentUser = null;
         let isMasked = localStorage.getItem('earnings_privacy_masked') === 'true';
 
         // View State
         window.currentPage = 'home';
+        window.trajectoryChartInstance = null; // Chart.js reference
 
         // Work Session State
         let historicalSessions = []; 
@@ -770,6 +785,7 @@
             return { 
                 id: monthId, 
                 name: monthName, year, monthIdx, 
+                goal: 50000, // Individual month target tracking
                 days: Array.from({ length: daysInMonth }, (_, i) => ({ date: i + 1, premiumOrders: 0, regularOrders: 0, errors: 0 })) 
             };
         };
@@ -1538,9 +1554,133 @@
             };
         };
 
+        const renderChart = (m, currentMonthlyGoal) => {
+            const canvas = document.getElementById('trajectoryChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            // Required total orders for this specific month's target
+            const targetOrders = getRequiredOrdersForNet(currentMonthlyGoal, 0, 0);
+            
+            const labels = [];
+            const targetData = [];
+            const actualData = [];
+            
+            let cumulativeActual = 0;
+            
+            const ist = getISTDate();
+            const isThisMonth = ist.getMonth() === m.monthIdx && ist.getFullYear() === m.year;
+            const isPastMonth = (ist.getFullYear() > m.year) || (ist.getFullYear() === m.year && ist.getMonth() > m.monthIdx);
+            const currentDay = ist.getDate();
+            
+            const daysInMonth = m.days.length;
+            const dailyTargetIncrement = targetOrders / daysInMonth;
+
+            for (let i = 0; i < daysInMonth; i++) {
+                const dayObj = m.days[i];
+                const d = dayObj.date;
+                labels.push(d);
+                
+                // Solid flat line increment target trajectory
+                targetData.push(Math.round(dailyTargetIncrement * d));
+                
+                // Calculate Actual Cumulative up to today
+                const legacyOrders = Number(dayObj.orders) || 0;
+                const pOrders = dayObj.premiumOrders !== undefined ? Number(dayObj.premiumOrders) : (dayObj.isRegular ? 0 : legacyOrders);
+                const rOrders = dayObj.regularOrders !== undefined ? Number(dayObj.regularOrders) : (dayObj.isRegular ? legacyOrders : 0);
+                const dailyTotal = pOrders + rOrders;
+                
+                if (isPastMonth || (isThisMonth && d <= currentDay)) {
+                    cumulativeActual += dailyTotal;
+                    actualData.push(cumulativeActual);
+                } else {
+                    // For future days in the current month, don't draw the actual line so it terminates dynamically
+                    actualData.push(null); 
+                }
+            }
+
+            if (window.trajectoryChartInstance) {
+                window.trajectoryChartInstance.destroy();
+            }
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.parentElement.offsetHeight);
+            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.4)'); // blue-500
+            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+
+            window.trajectoryChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Your Actual Trajectory',
+                            data: actualData,
+                            borderColor: '#3b82f6', // blue-500
+                            backgroundColor: gradient,
+                            borderWidth: 3,
+                            fill: true,
+                            tension: 0.4,
+                            pointBackgroundColor: '#020617',
+                            pointBorderColor: '#3b82f6',
+                            pointBorderWidth: 2,
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            spanGaps: false 
+                        },
+                        {
+                            label: 'Target Trajectory',
+                            data: targetData,
+                            borderColor: '#eab308', // yellow-500
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            fill: false,
+                            tension: 0,
+                            pointRadius: 0,
+                            pointHoverRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 } } },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                            titleColor: '#f8fafc',
+                            bodyColor: '#cbd5e1',
+                            borderColor: 'rgba(255,255,255,0.1)',
+                            borderWidth: 1,
+                            padding: 12,
+                            boxPadding: 4,
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) label += ': ';
+                                    if (context.parsed.y !== null) {
+                                        label += context.parsed.y.toLocaleString() + ' Orders';
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b', font: { family: 'Inter' } } },
+                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b', font: { family: 'Inter' } }, beginAtZero: true }
+                    }
+                }
+            });
+        };
+
         const updateUI = () => {
             const m = months.find(m => m.id === activeMonthId);
             if (!m) return;
+            
+            // Goal logic specifically tied to the active month selected
+            const currentMonthlyGoal = m.goal || monthlyGoal; 
+
             const ist = getISTDate();
             const isThisMonth = ist.getMonth() === m.monthIdx && ist.getFullYear() === m.year;
             const currentDay = ist.getDate();
@@ -1606,10 +1746,10 @@
                 return { orders: totalOrders, premiumOrders, regularOrders, errors: totalErrors, net, req, left, achieved, pace, status, statusColor, percent, daysLeft, title, isCurrentPhase };
             };
 
-            const p1Target = monthlyGoal / 2;
+            const p1Target = currentMonthlyGoal / 2;
             const p1 = calcPeriod(m.days.filter(d => d.date <= 15), true, p1Target);
             
-            const p2Target = Math.max(0, monthlyGoal - p1.net);
+            const p2Target = Math.max(0, currentMonthlyGoal - p1.net);
             const p2 = calcPeriod(m.days.filter(d => d.date > 15), false, p2Target);
             
             const totalNet = p1.net + p2.net;
@@ -1621,15 +1761,15 @@
             }
 
             const headerGoalText = document.getElementById('headerGoalText');
-            if(headerGoalText) headerGoalText.innerText = formatCurrency(monthlyGoal);
+            if(headerGoalText) headerGoalText.innerText = formatCurrency(currentMonthlyGoal);
             
             const totalNetDisplay = document.getElementById('totalNetDisplay');
             if(totalNetDisplay) totalNetDisplay.innerText = formatCurrency(totalNet);
             
             const monthlyGoalDisplay = document.getElementById('monthlyGoalDisplay');
-            if(monthlyGoalDisplay) monthlyGoalDisplay.innerText = `/ ${formatCurrency(monthlyGoal)} NET`;
+            if(monthlyGoalDisplay) monthlyGoalDisplay.innerText = `/ ${formatCurrency(currentMonthlyGoal)} NET`;
             
-            const totalPercent = Math.min(100, (totalNet / monthlyGoal) * 100);
+            const totalPercent = Math.min(100, (totalNet / currentMonthlyGoal) * 100);
             
             const mainProgressBar = document.getElementById('mainProgressBar');
             if(mainProgressBar) mainProgressBar.style.width = `${totalPercent}%`;
@@ -1639,7 +1779,7 @@
             
             const statusIcon = document.getElementById('statusIcon');
             if(statusIcon) {
-                statusIcon.innerHTML = totalNet >= monthlyGoal 
+                statusIcon.innerHTML = totalNet >= currentMonthlyGoal 
                     ? '<i class="fa-solid fa-trophy text-yellow-500 text-xl"></i>' 
                     : '<i class="fa-solid fa-bolt-lightning text-blue-400 text-xl"></i>';
             }
@@ -1648,6 +1788,9 @@
             updatePeriodCard('P2', p2);
             renderTable(m, currentDay, isThisMonth);
             updateHeaderIcons();
+            
+            // Draw Chart for specifically this month's data!
+            renderChart(m, currentMonthlyGoal);
         };
 
         const updatePeriodCard = (id, data) => {
@@ -1844,14 +1987,20 @@
             const modal = document.getElementById('goalModal');
             if (modal) modal.classList.toggle('hidden', !show);
             if(show) {
+                const m = months.find(m => m.id === activeMonthId);
                 const gi = document.getElementById('goalInput');
-                if(gi) gi.value = monthlyGoal;
+                if(gi) gi.value = m && m.goal ? m.goal : monthlyGoal;
             }
         };
 
         window.saveGoal = async () => {
             const input = document.getElementById('goalInput');
-            if(input) monthlyGoal = Number(input.value) || 50000;
+            if(input) {
+                const newGoal = Number(input.value) || 50000;
+                const m = months.find(m => m.id === activeMonthId);
+                if (m) m.goal = newGoal; // Sets it for the specific month
+                monthlyGoal = newGoal; // Keep as global fallback
+            }
             updateUI();
             toggleModal(false);
             saveToCloud();
